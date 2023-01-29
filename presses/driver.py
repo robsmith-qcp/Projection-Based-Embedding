@@ -196,6 +196,7 @@ def run_embed(keywords):
     embed_mf_e = Embed.embed_scf_energy(Cocc, Vemb, D_A)
 
     if correlated_method.lower() == 'hf' or if correlated_method.lower() == 'dft':
+        e_tot = embed_mf_e
         print('Total mean-field energy = ', embed_mf_e)
     else:
     # To Do: this would probably be better reworked and called as a function in the Proj_Emb class
@@ -241,7 +242,8 @@ def run_embed(keywords):
                 print('Total mean-field energy = ', embed_mf_e)
                 break
             print('Correlation energy = ', correl_e)    
-            print('Total energy = ', embed_mf_e + correl_e)
+            e_tot = embed_mf_e + correl_e
+            print('Total energy = ', e_tot)
         else: # Starting concentric localization
             shell_e = []
             shift = Embed.mol.nao - nenv
@@ -270,3 +272,5 @@ def run_embed(keywords):
             dup = shell_e.pop()
             total_e = list(map(lambda i: i+embed_SCF, shell_e))
             print('Total energy of each shell: ', shell_e)
+            e_tot = total_e[-1]
+    return e_tot
