@@ -1,8 +1,8 @@
 import pyscf
 import pyscf.tools
 import numpy as np
-import embedding
-import orbitals
+from .embedding import *
+from .orbitals import *
 
 def update_keywords(keywords):
     # Default keywords

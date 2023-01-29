@@ -1,6 +1,7 @@
 import pyscf
 import numpy as np
 import scipy
+from .embedding import *
 
 class Partition:
     '''
