@@ -3,22 +3,17 @@ import numpy as np
 import scipy
 from .embedding import *
 
-class Partition:
+class Partition(Proj_Emb):
     '''
     A class to hold objects associated with the orbital rotations and partitions
     '''
     def __init__(self, keywords):
         '''
-        Parameters
-        ----------
-        keywords   : dict
-            the dictionary of terms used in the embedding calculation
-        Returns
-        -------
+        Child class of the Proj_Emb class
         '''
-        self.keywords = keywords
+        Proj_Emb.__init__(self,keywords)
 
-    def ao_assignment(self):
+    def ao_assignment(self, mf, n_atoms):
         '''
         Returns
         -------
@@ -45,8 +40,8 @@ class Partition:
         five_f = ['Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr']
         six_d = ['Ac', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn']
         seven_p = ['Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
-        for i in range(self.keywords['active_space_atoms']):
-            for ao_idx,ao in enumerate(self.mf.mol.ao_labels(fmt=False)):
+        for i in range(n_atoms):
+            for ao_idx,ao in enumerate(mf.mol.ao_labels(fmt=False)):
                 if ao[0] == i:
                     if ao[1] in one_s:
                         if ao[2] in ('1s'):
@@ -108,7 +103,7 @@ class Partition:
         self.n_aos = len(frag)
         return frag
 
-    def spade(self, S, Cdocc, Csocc=None):
+    def spade(self, S, Cdocc, Csocc=None, closed_shell=True):
         '''
         Parameters
         ----------
@@ -133,7 +128,7 @@ class Partition:
         n_act = np.argpartition(ds, -1)[-1] + 1
         n_env = len(s) - n_act
         Cenv = Cdocc @ vh.conj().T[:, n_act:]
-        if self.closed_shell:
+        if closed_shell:
             Cact = Cdocc @ vh.conj().T[:, :n_act]
         else:
             X_s = (A @ Csocc)[:self.n_aos, :]

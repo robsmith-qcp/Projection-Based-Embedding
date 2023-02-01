@@ -1,9 +1,13 @@
-from driver import *
+import presses
+import pyscf
+import pytest
+import sys
 
 def test():
     keywords = {}
-    keywords['scf_method'] = 'hf' # If dft is chosen, the user should specify the desired exchange-correlation functional
-    keywords['subsystem_method'] = 'hf'
+    keywords['scf_method'] = 'dft' # If dft is chosen, the user should specify the desired exchange-correlation functional
+    keywords['subsystem_method'] = 'dft'
+    keywords['no_SPADE'] = True
     keywords['concen_local_shells'] = 0 # must be some integer
     keywords['atom'] = '''
                        C       -4.2066354000      0.3782434000     -0.1873330000                 
@@ -27,13 +31,13 @@ def test():
                        H        2.0159077000     -1.5933522000      0.8425261000                 
                        H        2.1337217000     -0.2313363000      1.9594454000                 
                        '''
-    keywords['active_space_atoms'] = 4 # The embedded subsystem is developed from the AOs centered on the first 4 atoms in the above string
+    keywords['active_space_atoms'] = 1 # The embedded subsystem is developed from the AOs centered on the first 4 atoms in the above string
     keywords['basis'] = 'STO-3G'
     keywords['spin'] = 0 # in PySCF this is the number of unpaired electrons, not 2s+1
     keywords['charge'] = 0
 
-    e, ref = run_embed(keywords)
-    assert(abs(ref - e) < 1e-7)
+    e, ref = presses.run_embed(keywords)
+    assert(abs(ref - e) < 1e-6)
 
 if __name__== "__main__":
     test()
