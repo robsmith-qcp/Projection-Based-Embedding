@@ -27,27 +27,23 @@ class Proj_Emb:
         -------
         F : np.array
             the Fock matrix
-        J : np.array
-            the Coulomb matrix
-        K : np.array
-            the exchange matrix
-        Exc : float
-            the potential energy arrising from the exchange-correlation
-        Vxc : np.array
-            the exchange-correlation matrix
+        V : np.array
+            the potential matrix
         C : np.array
             the MO coefficients
         S : np.array
             the overlap matrix
         P : np.array
             the 1-particle reduced-density matrix
+        H : np.array
+            the core Hamiltonian matrix
         '''
         self.mol = pyscf.gto.Mole(
                    atom    =   self.keywords['atom'],
                    symmetry=   False, # True
                    spin    =   self.keywords['spin'],
                    charge  =   self.keywords['charge'],
-                   cart    =   True, # This should be set to true to match Daniel's code with the 6-31G* basis
+                   cart    =   False, # This should be set to true to match Daniel's code with the 6-31G* basis
                    basis   =   self.keywords['basis'])
 
         self.mol.build()
@@ -60,31 +56,25 @@ class Proj_Emb:
             self.mf = pyscf.scf.ROHF(self.mol)
             self.closed_shell = False
         elif self.mol.spin == 0 and self.keywords['scf_method'].lower() != 'hf':
-            self.mf = pyscf.scf.RKS(self.mol)
+            self.mf = pyscf.dft.RKS(self.mol)
             self.mf.xc = self.xc
             self.closed_shell = True
+            self.mf.grids.atom_grid = (75, 302)
+            self.mf.grids.prune = pyscf.dft.treutler_prune
         elif self.mol.spin != 0 and self.keywords['scf_method'].lower() != 'hf':
-            self.mf = pyscf.scf.ROKS(self.mol)
+            self.mf = pyscf.dft.ROKS(self.mol)
             self.mf.xc = self.xc
             self.closed_shell = False
-        '''
-        elif closed_shell and scf.lower() == 'hf' and periodic:
-            self.mf = pyscf.pbc.scf.RHF(self.mol)
-        elif not closed_shell and scf.lower() == 'hf' and periodic:
-            self.mf = pyscf.pbc.scf.ROHF(self.mol)
-        elif closed_shell and scf.lower() != 'hf' and periodic:
-            self.mf = pyscf.pbc.scf.RKS(self.mol)
-            self.mf.xc = self.xc
-        elif not closed_shell and scf.lower() != 'hf' and periodic:
-            self.mf = pyscf.pbc.scf.ROKS(self.mol)
-            self.mf.xc = self.xc
-        '''
         self.mf.verbose = self.keywords['verbose']
         self.mf.conv_tol = self.keywords['conv_tol']
         self.mf.conv_tol_grad = self.keywords['conv_tol_grad']
         self.mf.chkfile = "scf.fchk"
         self.mf.init_guess = "minao"
-        self.mf.run(max_cycle=200)
+        self.mf.run(max_cycle=1000)
+
+        if not self.mf.converged:
+            print('Initial calculation did not converge. Please, check your chosen tolerances.')
+            exit()
 
         self.n_atoms = self.keywords['active_space_atoms']
         # Save the Fock matrix to be used in canonicalization and concentric localization
@@ -96,13 +86,8 @@ class Proj_Emb:
         # Compute the Coulomb and Exchange potentials
         self.J,self.K = self.mf.get_jk()
 
-        # Compute exchange-correlation potential
-        if self.keywords['scf_method'].lower() == 'hf':
-            self.Exc = 0.0
-            self.Vxc = np.zeros([self.mol.nao,self.mol.nao])
-        else:
-            self.Exc = self.mf.get_veff().exc
-            self.Vxc = self.mf.get_veff()
+        # Compute potential
+        self.V = self.mf.get_veff()
 
         # Define the 1-particle density matrix
         self.P = self.mf.make_rdm1()
@@ -116,8 +101,11 @@ class Proj_Emb:
 
         # Save the mean-field energy for testing
         self.E_init = self.mf.e_tot
+        
+        atom_index = self.keywords['active_space_atoms'] - 1
+        self.n_aos = self.mol.aoslice_nr_by_atom()[atom_index][3]
 
-        return F, self.J, self.K, C, S, self.P
+        return F, self.V, C, S, self.P, self.H_core
 
     def subspace_values(self, D_A, D_B):
         '''
@@ -129,50 +117,43 @@ class Proj_Emb:
             the density matrix for subsystem B
         Returns
         -------
-        V_subsystem : np.array
+        Vact : np.array
             the effective 2-electron component in the embedded subsystem
+        Venv : np.array
+            the effective 2-electron component in the environment subsystem
         '''
         # Compute the Coulomb and Exchange potentials for each subsystem
         Jenv, Kenv = self.mf.get_jk(dm=D_B)
         Jact, Kact = self.mf.get_jk(dm=D_A)
 
-        # Compute the exchange correlation for each subsystem
-        if self.keywords['scf_method'].lower() != 'hf':
-            XCenv = self.mf.get_veff(dm=D_B)
-            XCact = self.mf.get_veff(dm=D_A)
-            Exc_env = self.mf.get_veff(dm=D_B).exc
-            Exc_act = self.mf.get_veff(dm=D_A).exc
-        else:
-            XCenv = self.Vxc
-            XCact = self.Vxc
-            Exc_env = 0.0
-            Exc_act = 0.0
+        # Compute the potential for each subsystem
+        Venv = self.mf.get_veff(dm=D_B)
+        Vact = self.mf.get_veff(dm=D_A)
+        V = self.mf.get_veff()
 
         # Compute the subsystem energies
-        self.E_env = np.einsum('ij, ij', D_B, self.H_core) + 0.5 * np.einsum('ij, ij', D_B, self.J) - 0.25 * np.einsum('ij, ij', D_B, self.K)
-        self.E_act = np.einsum('ij, ij', D_A, self.H_core) + 0.5 * np.einsum('ij, ij', D_A, self.J) - 0.25 * np.einsum('ij, ij', D_A, self.K)
-        if self.keywords['scf_method'].lower() != 'hf':
-            self.E_env += Exc_env
-            self.E_act += Exc_act
-
-        # Compute the non-additive component of the 2-electron integral
-        '''
-        Jab = 0.5*(np.einsum('ij, ij', D_A, Jenv) + np.einsum('ij, ij', D_B, Jact))
-        Kab = 0.5*(np.einsum('ij, ij', D_A, Kenv) + np.einsum('ij, ij', D_B, Kact))
-        if self.keywords['scf_method'].lower() == 'hf':
-            XCab = 0.0
+        if self.closed_shell:
+            if self.keywords['scf_method'].lower() == 'hf':
+                self.E_env = np.einsum('ij,ji->', D_B, self.H_core) + 0.5 * np.einsum('ij,ji->', D_B, Venv)
+                self.E_act = np.einsum('ij,ji->', D_A, self.H_core) + 0.5 * np.einsum('ij,ji->', D_A, Vact)
+                self.E_cross = 0.5 * np.einsum('ij,ji->', D_B, Vact) + 0.5 * np.einsum('ij,ji->', D_A, Venv)
+            else:
+                self.E_env = np.einsum('ij,ji->', D_B, self.H_core) + Venv.ecoul + Venv.exc
+                self.E_act = np.einsum('ij,ji->', D_A, self.H_core) + Vact.ecoul + Vact.exc
+                self.E_cross = V.ecoul - Venv.ecoul - Vact.ecoul + V.exc - Venv.exc - Vact.exc
         else:
-            XCab = self.mf.get_veff().exc - Exc_act - Exc_env
-        self.G = Jab + Kab + XCab
-        '''
-        Jcross = self.J - Jact - Jenv
-        Kcross = self.K - Kact - Kenv
-        self.E_cross = 0.5 * np.einsum('ij, ij', D_A, Jcross) + 0.5 * np.einsum('ij, ij', D_B, Jcross) - 0.25 * np.einsum('ij, ij', D_A, Kcross) - 0.25 * np.einsum('ij, ij', D_B, Kcross) 
-        V_subsystem = self.mf.get_veff(dm=D_A)
+            if self.keywords['scf_method'].lower() == 'hf':
+                self.E_env = np.einsum('ij,ji->', D_B[0], self.H_core) + np.einsum('ij,ji->', D_B[1], self.H_core) + 0.5 * np.einsum('ij,ji->', D_B[0], Venv[0]) + 0.5 * np.einsum('ij,ji->', D_B[1], Venv[1])
+                self.E_act = np.einsum('ij,ji->', D_A[0], self.H_core) + np.einsum('ij,ji->', D_A[1], self.H_core) + 0.5 * np.einsum('ij,ji->', D_A[0], Vact[0]) + 0.5 * np.einsum('ij,ji->', D_A[1], Vact[1])
+                self.E_cross = 0.5 * np.einsum('ij,ji->', D_B[0], Vact[0]) + 0.5 * np.einsum('ij,ji->', D_B[1], Vact[1]) + 0.5 * np.einsum('ij,ji->', D_A[0], Venv[0]) + 0.5 * np.einsum('ij,ji->', D_A[1], Venv[1])
+            else:
+                self.E_env = np.einsum('ij,ji->', D_B[0], self.H_core) + np.einsum('ij,ji->', D_B[1], self.H_core) + Venv.ecoul + Venv.exc
+                self.E_act = np.einsum('ij,ji->', D_A[0], self.H_core) + np.einsum('ij,ji->', D_A[1], self.H_core) + Vact.ecoul + Vact.exc
+                self.E_cross = V.ecoul - Venv.ecoul - Vact.ecoul + V.exc - Venv.exc - Vact.exc
 
-        return V_subsystem, Jact, Kact
+        return Vact, Venv
 
-    def embedded_mean_field(self, n_elec, Vemb):
+    def embedded_mean_field(self, n_elec, Vemb, D_A):
         '''
         Parameters
         ----------
@@ -193,38 +174,42 @@ class Proj_Emb:
                    symmetry=   False, # True
                    spin    =   self.keywords['spin'],
                    charge  =   self.keywords['charge'],
-                   cart    =   True, # This should be set to true to match Daniel's code with the 6-31G* basis
+                   #cart    =   False, # This should be set to true to match Daniel's code with the 6-31G* basis
                    basis   =   self.keywords['basis'])
 
-        if self.closed_shell and self.keywords['subsystem_method'].lower() == 'hf':
+        if self.closed_shell and self.keywords['subsystem_method'].lower() != 'dft':
             self.emb_mf = pyscf.scf.RHF(self.mol)
-        elif not self.closed_shell and self.keywords['subsystem_method'].lower() == 'hf':
+        elif not self.closed_shell and self.keywords['subsystem_method'].lower() != 'dft':
             self.emb_mf = pyscf.scf.ROHF(self.mol)
-        elif self.closed_shell and self.keywords['subsystem_method'].lower() != 'hf':
+        elif self.closed_shell and self.keywords['subsystem_method'].lower() == 'dft':
             self.emb_mf = pyscf.scf.RKS(self.mol)
             self.emb_mf.xc = self.xc
-        elif not self.closed_shell and self.keywords['subsystem_method'].lower() != 'hf':
+        elif not self.closed_shell and self.keywords['subsystem_method'].lower() == 'dft':
             self.emb_mf = pyscf.scf.ROKS(self.mol)
             self.emb_mf.xc = self.xc
         self.mol.nelectron = n_elec
 
         self.mol.build()
-        print(self.mol.nelectron)
 
         self.emb_mf.verbose = 5
-        self.emb_mf.conv_tol = 1e-8
-        self.emb_mf.conv_tol_grad = 1e-6
-        self.emb_mf.chkfile = "emb_scf.chk"
-        self.emb_mf.init_guess = "minao"
+        self.emb_mf.conv_tol = self.keywords['conv_tol']
+        self.emb_mf.conv_tol_grad = self.keywords['conv_tol_grad']
+        self.emb_mf.chkfile = "subsys_scf.chk"
         self.emb_mf.get_hcore = lambda *args: self.H_core + Vemb
-        self.emb_mf.run(max_cycle=200)
-        C_emb = self.emb_mf.mo_coeff
+        self.emb_mf.run(dm0=D_A,max_cycle=1000)
+
+        if not self.emb_mf.converged:
+            print('Subsystem calculation did not converge. Please, check your chosen tolerances.')
+            exit()
+
+        self.C_emb = self.emb_mf.mo_coeff
         S_emb = self.emb_mf.get_ovlp(self.mol)
         F_emb = self.emb_mf.get_fock()
+        self.V_emb = self.emb_mf.get_veff()
         self.P_emb = self.emb_mf.make_rdm1()
-        return C_emb, S_emb, F_emb
+        return self.C_emb, S_emb, F_emb
 
-    def embed_scf_energy(self, Cocc, Vemb, D_A, Proj, mu):
+    def embed_scf_energy(self, Vemb, D_A, Proj, mu, H):
         '''
         Parameters
         ----------
@@ -236,21 +221,29 @@ class Proj_Emb:
             the density of the embedded subsystem A
         Returns
         -------
-        F_emb : float
+        E_emb : float
             the mean-field energy resulting from projection-based embedding
         '''
         # Computing the embedded SCF energy
-        E_emb = np.einsum('ij, ji', self.H_core, self.P_emb) + 0.5 * np.einsum('ij, ji', self.J, self.P_emb) - 0.25 * np.einsum('ij, ji', self.K, self.P_emb)
+        if self.closed_shell:
+            if self.keywords['subsystem_method'].lower() == 'dft':
+                E_emb = np.einsum('ij,ji->', self.P_emb, H) + self.V_emb.ecoul + self.V_emb.exc
+            else:
+                E_emb = np.einsum('ij,ji->', self.P_emb, H) + 0.5 * np.einsum('ij,ji->', self.P_emb, self.V_emb)
+            correction = np.einsum('ij,ji->', Vemb, (self.P_emb-D_A))
+            post = mu * np.einsum('ij,ji->', self.P_emb, Proj )
+        else:
+            if self.keywords['subsystem_method'].lower() == 'dft':
+                E_emb = np.einsum('ij,ji->', self.P_emb[0], H) + np.einsum('ij,ji->', self.P_emb[1], H)  + self.V_emb.ecoul + self.V_emb.exc
+            else:
+                E_emb = np.einsum('ij,ji->', self.P_emb[0], H) + np.einsum('ij,ji->', self.P_emb[1], H) + 0.5 * np.einsum('ij,ji->', self.P_emb[0], self.V_emb[0]) + 0.5 * np.einsum('ij,ji->', self.P_emb[1], self.V_emb[1])
+            correction = np.einsum('ij,ji->', Vemb, (self.P_emb[0]-D_A[0])) + np.einsum('ij,ji->', Vemb, (self.P_emb[1]-D_A[1]))
+            post = mu * (np.einsum('ij,ji->', self.P_emb[0], Proj[0]) + np.einsum('ij,ji->', self.P_emb[1], Proj[1]))
 
-        correction = np.einsum('ij, ji', Vemb, (self.P_emb-D_A))
+        self.embed_SCF = E_emb + self.E_env + self.E_cross + correction + self.Vnn + post
+        return self.embed_SCF
 
-        post = np.einsum('ij, ji', self.P_emb, mu * Proj )
-
-        embed_SCF = E_emb + self.E_env + self.E_cross + correction + self.Vnn + post
-        print(E_emb, correction, post)
-        return embed_SCF
-
-    def correlation(self, nact, span_e, span_c, kenerl_e, kernel_c, Cocc, n_active_aos, shift, C, correl_e):
+    def correlation_energy(self, n_effective, nact=None, C_span=None, C_kern=None, e_orb_span=None, e_orb_kern=None):
         '''
         Parameters
         ----------
@@ -279,23 +272,57 @@ class Proj_Emb:
         correl_e : list
             the updated list containing the correlation energy for each shell
         '''
-        mf_eff = self.mf
-        orbs0 = np.hstack((span_c, kernel_c))
-        orbs0_e = np.concatenate((span_e, kenerl_e))
-        frozen = [i for i in range(nact + span_c.shape[1], self.mol.nao)]
-        orbitals = np.hstack((Cocc, span_c, C[:, shift:]))
-        orbital_energies = np.concatenate((mf_eff.mo_energy[:nact], span_e, mf_eff.mo_energy[shift:]))
-        mf_eff.mo_energy = orbital_energies
-        mf_eff.mo_coeff = orbitals
-        if correlated_method == 'mp2':
-            mymp = mp.MP2(mf_eff).set(frozen=frozen).run()
+        mf_eff = self.emb_mf
+
+        if self.keywords['n_shells'] == 0:
+            frozen = [i for i in range(n_effective, self.mol.nao)]
+        else:
+            orbs = np.hstack((self.C_emb[:,:nact],Cspan,Ckern,self.C_emb[:,n_effective:]))
+            orbs_e = np.concatenate((mf_eff.mo_energy[:nact],e_orb_span, e_orb_kern,mf_eff.mo_energy[n_effective:]))
+            frozen = [i for i in range(nact + Cspan.shape[1], self.mol.nao)]
+            mf_eff.mo_energy = orbital_energies
+            mf_eff.mo_coeff = orbitals
+
+        if self.keywords['subsystem_method'].lower() == 'mp2':
+            mymp = pyscf.mp.MP2(mf_eff).set(frozen=frozen).run()
             correl_e = mymp.e_corr
-        elif correlated_method == 'ccsd':
-            mycc = cc.CCSD(mf_eff).set(frozen=frozen).run()
+        elif self.keywords['subsystem_method'].lower() == 'ccsd':
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
             et = mycc.ccsd_t()
             correl_e = mycc.e_corr
             correl_e += et
-        shell_e.append(correl_e)
+        elif self.keywords['subsystem_method'].lower() == 'fci':
+            # To Do: code FCI solver
+            print('Requested correlation method has not yet been implemented.')
+            print('Total mean-field energy = ', self.embed_SCF)
+            pass
+        elif self.keywords['subsystem_method'].lower() == 'eom-ccsd':
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            e_ee, c_ee = mycc.eeccsd(nroots=2)
+            correl_e = mycc.e_ee
+        elif self.keywords['subsystem_method'].lower() == 'sf-eom-ccsd':
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            e_sf, c_sf = mycc.eomsf_ccsd(nroots=2)
+            correl_e = mycc.e_sf
+            J = 0.5 * (e_sf[1] - e_sf[0]) * 219474.63
+            print('Exchange coupling constant: %f cm^-1' %J)
+        elif self.keywords['subsystem_method'].lower() == 'ip-eom-ccsd':
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            e_ip, c_ip = mycc.ipccsd(nroots=2)
+            correl_e = mycc.e_ip
+            I = (e_ip[1] - e_ip[0]) * 2625.5002
+            print('Ionization potential: %f kJ/mol' %I)
+        elif self.keywords['subsystem_method'].lower() == 'ea-eom-ccsd':
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            e_ea, c_ea = mycc.eaccsd(nroots=2)
+            correl_e = mycc.e_ea
+            E = (e_ea[1] - e_ea[0]) * 2625.5002
+            print('Electron affinity: %f kJ/mol' %E)
+        else:
+            print('Requested correlation method has not yet been implemented.')
+            print('Total mean-field energy = ', self.embed_SCF)
+            pass
+
         return correl_e
 
 def canvas(with_attribution=True):

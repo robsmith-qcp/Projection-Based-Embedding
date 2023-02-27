@@ -103,16 +103,16 @@ class Partition(Proj_Emb):
         self.n_aos = len(frag)
         return frag
 
-    def spade(self, S, Cdocc, Csocc=None, closed_shell=True):
+    def spade(self, S, C, n_aos):
         '''
         Parameters
         ----------
         S : np.array
             the overlap matrix
-        Cdocc : np.array
-            the doubly occupied orbitals from the mean-field calculation
-        Csocc : np.array
-            the singly occupied orbitals from the mean-field calculation
+        C : np.array
+            the occupied orbitals from the mean-field calculation
+        n_orbs : int
+            the number of AOs that define the active space to be projected into
         Returns
         -------
         Cact : np.array
@@ -121,25 +121,37 @@ class Partition(Proj_Emb):
             the SPADE MOs in the environment space (subsystem B)
         '''
         # Using an SVD to perform the SPADE rotation
-        A = scipy.linalg.sqrtm(S)
-        X = (A @ Cdocc)[:self.n_aos, :]
-        u, s, vh = np.linalg.svd(X, full_matrices=True)
+        X = scipy.linalg.sqrtm(S)
+        A = (X @ C)[:n_aos, :]
+        u, s, vh = np.linalg.svd(A, full_matrices=True)
         ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
         n_act = np.argpartition(ds, -1)[-1] + 1
         n_env = len(s) - n_act
-        Cenv = Cdocc @ vh.conj().T[:, n_act:]
-        if closed_shell:
-            Cact = Cdocc @ vh.conj().T[:, :n_act]
-        else:
-            X_s = (A @ Csocc)[:self.n_aos, :]
-            u, s, vh_s = np.linalg.svd(X_s, full_matrices=True)
-            ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
-            n_act_s = np.argpartition(ds, -1)[-1] + 1
-            n_env_s = len(s) - n_act_s
-            Cdocc_act = Cdocc @ vh.conj().T[:, :n_act]
-            Csocc_act = Csocc @ vh_s.conj().T[:, :n_act]
-            Cact = np.hstack((Cdocc_act, Csocc_act))
+        Cenv = C @ vh.conj().T[:, n_act:]
+        Cact = C @ vh.conj().T[:, :n_act]
+        return Cact, Cenv
+
+    def split_spade(self, S, C, active_orbs, thresh=1.0e-6):
         '''
+        Parameters
+        ----------
+        S : np.array
+            the overlap matrix
+        C : np.array
+            the orbitals from the mean-field calculation used in the partition
+        active_orbs : list
+            the atomic orbitals to target for projection onto the active space
+        thresh : float
+            the threshhold used to determine which singular values will define the active space
+        Returns
+        -------
+        Cact : np.array
+            the SPADE MOs in the active space (subsystem A)
+        Cenv : np.array
+            the SPADE MOs in the environment space (subsystem B)
+        '''
+        # *** To Do: Fix poor convergence when using split-SPADE ***
+
         A = scipy.linalg.sqrtm(S)
         Corth = A @ C
     
@@ -155,6 +167,35 @@ class Partition(Proj_Emb):
     
         Cact = Xinv @ Corth @ V[0:nkeep,:].conj().T
         Cenv = Xinv @ Corth @ V[nkeep::,:].conj().T
-        '''
+
         return Cact, Cenv
+
+    def build_shell(self, Operator, Cspan_initial, Ckern_initial, shell):
+        '''
+        Parameters
+        ----------
+        Operator : np.array
+            the chosen single-particle operator that defines how the concentric localization is built
+        Cspan_initial : np.array
+            the orbitals previously connected to subsystem A
+        Ckern_initial : np.array
+            the orbitals used to expand into the next shell        
+        shell : int
+            the number of orbitals that define the shell size
+        Returns
+        -------
+        Cspan : np.array
+            the CL MOs connected to the active space (subsystem A) by the operator
+        Ckern : np.array
+            the CL MOs not connected to subsystem A by the operator
+        '''
+        # Using an SVD to perform a shell partition in the concentric localization procedure
+        A = Cspan_initial.conj().T @ Operator @ Ckern_initial
+        u, s, vh = np.linalg.svd(A, full_matrices=True)
+        ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
+        n_act = np.argpartition(ds, -1)[-1] + 1
+        n_env = len(s) - n_act
+        Cspan = Ckern_initial @ vh.conj().T[:, n_act:]
+        Ckern = Ckern_initial @ vh.conj().T[:, :n_act]
+        return Cspan, Ckern
 

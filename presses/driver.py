@@ -1,6 +1,8 @@
 import pyscf
 import pyscf.tools
 import numpy as np
+import scipy
+from functools import reduce
 from .embedding import *
 from .orbitals import *
 
@@ -12,13 +14,15 @@ def update_keywords(keywords):
     default_keywords['spin'] = 0
     default_keywords['scf_method'] = 'hf'
     default_keywords['subsystem_method'] = 'hf'
-    default_keywords['conv_tol'] = 1.0e-8
-    default_keywords['conv_tol_grad'] = 1.0e-5
+    default_keywords['conv_tol'] = 1.0e-7
+    default_keywords['conv_tol_grad'] = 1.0e-7
     default_keywords['output'] = 'output.txt'
     default_keywords['level_shift'] = 1.0e6
     default_keywords['verbose'] = 5
     default_keywords['basis'] = 'STO-3G'
     default_keywords['xc'] = 'lda,vwn'
+    default_keywords['split_spade'] = False
+    default_keywords['n_shells'] = 0
 
     # Checking if the necessary keywords have been defined
     assert 'scf_method' in keywords, '\n Choose level of theory for the initial scf'
@@ -30,15 +34,13 @@ def update_keywords(keywords):
             keywords[key] = default_keywords[key]
     return keywords
 
-# This function is courtesy of N. Mayhall
 def semi_canonicalize(C,F):
-    e,V = np.linalg.eigh(C.conj().T @ F @ C)
-    for ei in e:
-        print(" Orbital Energy: ", ei)
-    return C @ V
+    e,v = np.linalg.eigh(C.conj().T @ F @ C)
+    C_bar = C @ v
+    return C_bar, e
 
 def idempotentcy(D, S):
-    idem = D @ S @ D - D
+    idem = (D @ S @ D) - D
     idem = idem.round()
     if not np.all(idem):
         print('\n The density matrix is idempotent!')
@@ -73,7 +75,7 @@ def run_embed(keywords):
     Orbs = Partition(Embed)
 
     # Start with a mean-field calculation on the whole system
-    F, J, K, C, S, P = Embed.mean_field()
+    F, V, C, S, P, H = Embed.mean_field()
     
     # indexing code is courtesy of N. Mayhall
     # From the mean-field MOs, group them by occupation number
@@ -94,34 +96,26 @@ def run_embed(keywords):
     Cvirt = C[:,virt_list]
 
     # Define the 1-particle density matrices for open-shell systems
-    # Enable this once ROHF is fixed
-    '''
     if not Embed.closed_shell:
         Pa = P[0,:,:]
         Pb = P[1,:,:]
-    '''
-    # Acquire the list of AOs in the active space
-    # ToDo: test for frag list
-    frag_list = Orbs.ao_assignment(Embed.mf, Embed.n_atoms)
-    print('\n AO indices used for projection: ', frag_list)
+
+    # Acquire the AOs in the active space
+    if Embed.keywords['split_spade']:
+        frag_list = Orbs.ao_assignment(Embed.mf, Embed.n_atoms)
+        print('\n AO indices used for projection: ', frag_list)
 
     # Use SPADE to rotate the MOs into the active space
-    # ToDo: test for spade orbitals
-    if Embed.keywords['no_SPADE'] and Embed.closed_shell:
-        homo = [docc_list[-1]]
-        docc_list.pop(-1)
-        Cenv = C[:,docc_list]
-        Cact = C[:,homo]
-    elif not Embed.keywords['no_SPADE'] and Embed.closed_shell:
-        Cact, Cenv = Orbs.spade(S, Cdocc)
-    elif Embed.keywords['no_SPADE'] and not Embed.closed_shell:
-        Cact = Csocc
-        Cenv = Cdocc
+    if Embed.keywords['split_spade']:
+        Cact, Cenv = Orbs.split_spade(S, Cdocc, frag_list)
     else:
-        Cact, Cenv = Orbs.spade(S, Cdocc, Csocc=Csocc, closed_shell=False)
+        Cact, Cenv = Orbs.spade(S, Cdocc, Embed.n_aos)
+    if not Embed.closed_shell:
+        Cact_d = Cact
+        Cact_s = Csocc
+        Cact = np.hstack((Cact_d,Cact_s))
 
     # Validate the fidelity of the electron occupation number in the subspace, courtesy of N. Mayhall
-    # ToDo: test that the subsystems do not have fractional occupations of electrons
     if not Embed.closed_shell:
         na_act = np.trace(Cact.conj().T @ S @ Pa @ S @ Cact)
         na_env = np.trace(Cenv.conj().T @ S @ Pa @ S @ Cenv)
@@ -145,151 +139,116 @@ def run_embed(keywords):
     nb_act = round(nb_act)
     n_elec = na_act + nb_act
     print('Number of electrons in the active space: ', n_elec)
-    '''
-    # Semicanonicalize the two subspaces and print the orbitals for viewing
-    Cenv = semi_canonicalize(Cenv, F)
-    Cact = semi_canonicalize(Cact, F)
-    '''
 
+    
+    # Semicanonicalize the two subspaces and print the orbitals for viewing
+    Cenv, e_orb_env = semi_canonicalize(Cenv, F)
+    Cact, e_orb_act = semi_canonicalize(Cact, F)
+
+    # Generate Molden files to visualize subsystem orbitals    
     pyscf.tools.molden.from_mo(Embed.mf.mol, "Cact.molden", Cact);
     pyscf.tools.molden.from_mo(Embed.mf.mol, "Cenv.molden", Cenv);
 
     # Build density matrices for each subspace
-    # ToDo: test idempotentcy of embedded matrices
-    D_B = 2.0 * Cenv @ Cenv.conj().T
-    Dact = Cact @ Cact.conj().T
     if Embed.closed_shell:
-        D_A = 2.0 * Dact
+        D_B = 2.0 * Cenv @ Cenv.conj().T
+        D_A = 2.0 * Cact @ Cact.conj().T
     else:
-        Dact_s = np.hstack((Cact, Csocc)) @ np.hstack((Cact, Csocc)).T # all singly occupied orbitals must be included the embedded subsystem
-        D_A = Dact_s + Dact    
+        Denv = Cenv @ Cenv.conj().T
+        D_B = np.stack((Denv,Denv))
+        Dact_a = (Cact_d @ Cact_d.conj().T) + (Cact_s @ Cact_s.conj().T)
+        Dact_b = Cact_d @ Cact_d.conj().T
+        D_A = np.stack((Dact_a,Dact_b))
+   
     # Validate the density matrices are idempotent
-    idempotentcy(D_B, S)
-    idempotentcy(D_A, S)
+    if Embed.closed_shell:
+        idempotentcy(D_B, S)
+        idempotentcy(D_A, S)
+    else:
+        idempotentcy(D_B[0], S)
+        idempotentcy(D_A[0], S)
+        idempotentcy(D_A[1], S)
 
     # Compute the subsystem terms
-    g_A, Jact, Kact = Embed.subspace_values(D_A, D_B)
+    Vact, Venv = Embed.subspace_values(D_A, D_B)
     
     # Compute the Projector
     P_B = (S @ D_B @ S)
     mu = 1.0e6
 
-    # Computing the number of orbitals in each subspace
-    H_act = Cact.conj().T @ Embed.H_core @ Cact;
-    nact = H_act.shape[0]
-    H_env = Cenv.conj().T @ Embed.H_core @ Cenv;
-    nenv = H_env.shape[0]
-    print('\n # active orbitals: ', nact)
-    print('\n # environment orbitals: ', nenv)
-
     # Compute the embedded potential
-    Vemb = J - 0.5 * K - Jact + 0.5 * Kact + mu * P_B
+    Vemb = V - Vact + (mu * P_B)
     if not Embed.closed_shell:
-        Vemb = 0.5 * (Vemb[0,:,:] + Vemb[1,:,:]) # TO DO: Resolve ROHF/ROKS embedded potential inclusion in the core Hamiltonian
+        Vemb_a = Vemb[0,:,:]
+        Vemb_b = Vemb[1,:,:]
+        Vemb_c = 0.5 * (Vemb[0,:,:] + Vemb[1,:,:])
+        proj_cl = np.dot(Pb, S)
+        proj_op = np.dot(Pa-Pb, S)
+        proj_vir = np.eye(S.shape[0]) - np.dot(Pa, S)
+
+        Vemb = 0.5 * reduce(np.dot, (proj_cl.conj().T, Vemb_c, proj_cl))
+        Vemb += 0.5 * reduce(np.dot, (proj_op.conj().T, Vemb_c, proj_op))
+        Vemb += 0.5 * reduce(np.dot, (proj_vir.conj().T, Vemb_c, proj_vir))
+        Vemb += reduce(np.dot, (proj_op.conj().T, Vemb_b, proj_cl))
+        Vemb += reduce(np.dot, (proj_op.conj().T, Vemb_a, proj_vir))
+        Vemb += reduce(np.dot, (proj_vir.conj().T, Vemb_c, proj_cl))
+        Vemb = Vemb + Vemb.conj().T
+
+    H_emb = H + Vemb
         
     # Run the mean-field calculation with an embedded potential
-    C_emb, S_emb, F_emb = Embed.embedded_mean_field(int(n_elec), Vemb) 
+    C_emb, S_emb, F_emb = Embed.embedded_mean_field(int(n_elec), Vemb, D_A) 
     
-    emb_docc_list = []
-    emb_socc_list = []
-    emb_virt_list = []
-
-    for idx,i in enumerate(Embed.emb_mf.mo_occ):
-        if i == 0:
-            emb_virt_list.append(idx)
-        elif i == 1:
-            emb_socc_list.append(idx)
-        elif i == 2:
-            emb_docc_list.append(idx)
-        
-    Cdocc_emb = C_emb[:, emb_docc_list]
-    Csocc_emb = C_emb[:, emb_socc_list]
-    Cvirt_emb = C_emb[:, emb_virt_list]
     P_emb = Embed.emb_mf.make_rdm1()
 
     # Compute the new mean-field energy
-    if Embed.closed_shell:
-        Cocc = Cdocc_emb
-    else:
-        Cocc = np.hstack((Cdocc_emb, Csocc_emb))
-    embed_mf_e = Embed.embed_scf_energy(Cocc, Vemb, D_A, P_B, mu)
+    embed_mf_e = Embed.embed_scf_energy(Vemb, D_A, P_B, mu, H)
 
     if Embed.keywords['subsystem_method'].lower() == 'hf' or Embed.keywords['subsystem_method'].lower() == 'dft':
         e_tot = embed_mf_e
-        print('Total mean-field energy = ', embed_mf_e)
+        print('Total mean-field energy = ', e_tot)
+        e_c = 0
     else:
-    # To Do: this would probably be better reworked and called as a function in the Proj_Emb class
-    # Starting concentric localization
-        if not concentric_localization:
-            if correlated_method.lower() == 'mp2':
-                mymp = pyscf.mp.MP2(Embed.embed_mf).run()
-                correl_e = mymp.e_corr
-            elif correlated_method.lower() == 'ccsd':
-                mycc = pyscf.cc.CCSD(Embed.embed_mf).run()
-                et = mycc.ccsd_t()
-                correl_e = mycc.e_corr
-                correl_e += et
-            elif correlated_method.lower() == 'fci':
-                # To Do: code FCI solver
-                print('Requested correlation method has not yet been implemented.')
-                print('Total mean-field energy = ', embed_mf_e)
-                pass
-            elif correlated_method.lower() == 'eom-ccsd':
-                mycc = pyscf.cc.CCSD(Embed.embed_mf).kernel()
-                e_ee, c_ee = mycc.eeccsd(nroots=2)
-                correl_e = mycc.e_ee
-            elif correlated_method.lower() == 'sf-eom-ccsd':
-                mycc = pyscf.cc.CCSD(mf).kernel()
-                e_sf, c_sf = mycc.eomsf_ccsd(nroots=2)
-                correl_e = mycc.e_sf
-                J = 0.5 * (e_sf[1] - e_sf[0]) * 219474.63
-                print('Exchange coupling constant: %f cm^-1' %J)
-            elif correlated_method.lower() == 'ip-eom-ccsd':
-                mycc = pyscf.cc.CCSD(mf).kernel()
-                e_ip, c_ip = mycc.ipccsd(nroots=2)
-                correl_e = mycc.e_ip
-                I = (e_ip[1] - e_ip[0]) * 2625.5002
-                print('Ionization potential: %f kJ/mol' %I)
-            elif correlated_method.lower() == 'ea-eom-ccsd':
-                mycc = pyscf.cc.CCSD(mf).kernel()
-                e_ea, c_ea = mycc.eaccsd(nroots=2)
-                correl_e = mycc.e_ea
-                E = (e_ea[1] - e_ea[0]) * 2625.5002
-                print('Electron affinity: %f kJ/mol' %E)
-            else:
-                print('Requested correlation method has not yet been implemented.')
-                print('Total mean-field energy = ', embed_mf_e)
-                pass
-            print('Correlation energy = ', correl_e)    
+        n_act = round(na_act)
+        n_effective = Embed.mol.nao - round(na_env)
+        Cocc = C_emb[:,:n_act]
+        Cvirt_eff = C_emb[:,n_act:n_effective]
+        Cfroz = C_emb[:,n_effective:]
+
+        if Embed.keywords['n_shells'] == 0:
+            correl_e = Embed.correlation_energy(n_effective)
             e_tot = embed_mf_e + correl_e
             print('Total energy = ', e_tot)
-        else: # Starting concentric localization
+            e_c = correl_e
+        else:
+            n_shells = Embed.keywords['n_shells']
             shell_e = []
-            shift = Embed.mol.nao - nenv
-            span_0, kernel_0, s0, shell = Embed.shell_0(shift, C_emb, nact, S_emb, n_active_aos)
-            #print(s0, 0)
-            span0_e, span0_c = Orbs.orbitals(span_0, F_emb)
-            kenerl0_e, kernel0_c = Orbs.orbitals(kernel_0, F_emb)
-            #print(span0_c.shape, kernel0_c.shape)
-            E_0 = Embed.correlation(nact, span0_e, span0_c, kenerl0_e, kernel0_c, Cocc, n_active_aos, shift, C_emb)
-            print('Shell ', 0, 'Energy = ', E_0)
-            C_span = span0_c
-            C_kernel = kernel0_c
-            E_old = 0
-            if n_shells > 0:
-                for i in range(n_shells):
-                    C_op = C_span.conj().T @ F_emb @ C_kernel
-                    span_i, kernel_i, s_i = Orbs.shell_constr(C_op, shell, C_kernel, C_span)
-                    span_i_e, C_span = Orbs.orbitals(span_i, F_emb)
-                    kenerl_i_e, C_kernel = Orbs.orbitals(kernel_i, F_emb)
-                    E_i = Embed.correlation(nact, span_i_e, C_span, kenerl_i_e, C_kernel, Cdocc, n_active_aos, shift, C_emb)
+            Cspan_0, Ckern_0 = Orbs.spade(S_emb, Cvirt_eff, Embed.n_aos)
+            shell = Cspan_0.shape[1]
+            Cspan_0, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
+            Ckern_0, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)
+            correl_e = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_0, Ckern=Ckern_0, e_orb_span=e_orb_span, e_orb_kern=e_orb_kern)
+            shell_e.append(correl_e)
+            Cspan_old = Cspan_0
+            Ckern_old = Ckern_0
+            E_old = 0.0
+            if n_shells > 1:
+                for i in range(n_shells - 1):
+                    Cspan_i, Ckern_i =  Orbs.build_shell(F_emb, Cspan_old, Ckern_old, shell)
+                    Cspan_i =  np.hstack((Cspan_old,Cspan_i))
+                    Cspan_i, e_orb_span_i = semi_canonicalize(Cspan_i, F_emb)
+                    Ckern_i, e_orb_kern_i = semi_canonicalize(Ckern_i, F_emb)
+                    E_i = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_i, Ckern=Ckern_i, e_orb_span=e_orb_span_i, e_orb_kern=e_orb_kern_i)
+                    shell_e.append(E_i)
                     if E_i == E_old:
                         break
                     print('Shell ', i+1, 'Energy = ', E_i)
                     E_old = E_i
+                    Cspan_old = Cspan_i
+                    Ckern_old = Ckern_i
 
-            dup = shell_e.pop()
             total_e = list(map(lambda i: i+embed_SCF, shell_e))
             print('Total energy of each shell: ', shell_e)
             e_tot = total_e[-1]
-    return e_tot, Embed.E_init
+            e_c = shell_e
+    return e_tot, Embed.E_init, e_c

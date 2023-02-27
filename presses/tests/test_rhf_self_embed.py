@@ -36,8 +36,8 @@ def test():
     keywords['spin'] = 0 # in PySCF this is the number of unpaired electrons, not 2s+1
     keywords['charge'] = 0
 
-    e, ref = presses.run_embed(keywords)
-    assert(abs(ref - e) < 1e-6)
+    e, ref, ec = presses.run_embed(keywords)
+    assert(abs(ref - e) < 1e-7)
 
 if __name__== "__main__":
     test()
