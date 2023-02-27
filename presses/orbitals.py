@@ -192,10 +192,7 @@ class Partition(Proj_Emb):
         # Using an SVD to perform a shell partition in the concentric localization procedure
         A = Cspan_initial.conj().T @ Operator @ Ckern_initial
         u, s, vh = np.linalg.svd(A, full_matrices=True)
-        ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
-        n_act = np.argpartition(ds, -1)[-1] + 1
-        n_env = len(s) - n_act
-        Cspan = Ckern_initial @ vh.conj().T[:, n_act:]
-        Ckern = Ckern_initial @ vh.conj().T[:, :n_act]
+        Ckern = Ckern_initial @ vh.conj().T[:, shell:]
+        Cspan = Ckern_initial @ vh.conj().T[:, :shell]
         return Cspan, Ckern
 

@@ -225,6 +225,7 @@ def run_embed(keywords):
             shell_e = []
             Cspan_0, Ckern_0 = Orbs.spade(S_emb, Cvirt_eff, Embed.n_aos)
             shell = Cspan_0.shape[1]
+            print('Shell size: ', shell)
             Cspan_0, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
             Ckern_0, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)
             correl_e = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_0, Ckern=Ckern_0, e_orb_span=e_orb_span, e_orb_kern=e_orb_kern)
@@ -247,7 +248,7 @@ def run_embed(keywords):
                     Cspan_old = Cspan_i
                     Ckern_old = Ckern_i
 
-            total_e = list(map(lambda i: i+embed_SCF, shell_e))
+            total_e = list(map(lambda i: i+embed_mf_e, shell_e))
             print('Total energy of each shell: ', shell_e)
             e_tot = total_e[-1]
             e_c = shell_e

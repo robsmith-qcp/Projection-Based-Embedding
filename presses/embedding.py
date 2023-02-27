@@ -243,7 +243,7 @@ class Proj_Emb:
         self.embed_SCF = E_emb + self.E_env + self.E_cross + correction + self.Vnn + post
         return self.embed_SCF
 
-    def correlation_energy(self, n_effective, nact=None, C_span=None, C_kern=None, e_orb_span=None, e_orb_kern=None):
+    def correlation_energy(self, n_effective, nact=None, Cspan=None, Ckern=None, e_orb_span=None, e_orb_kern=None):
         '''
         Parameters
         ----------
@@ -280,8 +280,8 @@ class Proj_Emb:
             orbs = np.hstack((self.C_emb[:,:nact],Cspan,Ckern,self.C_emb[:,n_effective:]))
             orbs_e = np.concatenate((mf_eff.mo_energy[:nact],e_orb_span, e_orb_kern,mf_eff.mo_energy[n_effective:]))
             frozen = [i for i in range(nact + Cspan.shape[1], self.mol.nao)]
-            mf_eff.mo_energy = orbital_energies
-            mf_eff.mo_coeff = orbitals
+            mf_eff.mo_energy = orbs_e
+            mf_eff.mo_coeff = orbs
 
         if self.keywords['subsystem_method'].lower() == 'mp2':
             mymp = pyscf.mp.MP2(mf_eff).set(frozen=frozen).run()
