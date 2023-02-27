@@ -7,8 +7,7 @@ def test():
     keywords = {}
     keywords['scf_method'] = 'hf' # If dft is chosen, the user should specify the desired exchange-correlation functional
     keywords['subsystem_method'] = 'hf'
-    keywords['no_SPADE'] = True
-    keywords['concen_local_shells'] = 0 # must be some integer
+    keywords['n_shells'] = 0 # must be some integer
     keywords['atom'] = '''
                        C       -4.2066354000      0.3782434000     -0.1873330000                 
                        H       -4.6220764000     -0.2488589000      0.6064495000                 
