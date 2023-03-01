@@ -204,6 +204,7 @@ def run_embed(keywords):
     # Compute the new mean-field energy
     embed_mf_e = Embed.embed_scf_energy(Vemb, D_A, P_B, mu, H)
 
+    # If the user chooses a DFT-in-DFT approach, just print the mean-field embedding result. Otherwise, proceed with a post-HF method.
     if Embed.keywords['subsystem_method'].lower() == 'hf' or Embed.keywords['subsystem_method'].lower() == 'dft':
         e_tot = embed_mf_e
         print('Total mean-field energy = ', e_tot)
@@ -215,6 +216,7 @@ def run_embed(keywords):
         Cvirt_eff = C_emb[:,n_act:n_effective]
         Cfroz = C_emb[:,n_effective:]
 
+        # Perform concentric localization, if requested.
         if Embed.keywords['n_shells'] == 0:
             correl_e = Embed.correlation_energy(n_effective)
             e_tot = embed_mf_e + correl_e
@@ -223,8 +225,13 @@ def run_embed(keywords):
         else:
             n_shells = Embed.keywords['n_shells']
             shell_e = []
-            Cspan_0, Ckern_0 = Orbs.spade(S_emb, Cvirt_eff, Embed.n_aos)
-            shell = Cspan_0.shape[1]
+            Cspan_0, Ckern_0 = initial_shell(S_emb, Cvirt_eff, Embed.n_aos)
+            C_eff = np.linalg.inv(S_emb[:Embed.n_aos,:Embed.n_aos]) @ S_emb[:Embed.n_aos,:] @ Cvirt_eff
+            u, s, vh = np.linalg.svd((C_eff.conj().T @ S_emb[Embed.n_aos,:] @ C_eff), full_matrices=True)
+            s_eff = s[:Embed.n_aos]
+            shell = (s>=1.0e-15).sum
+            Cspan_0 = Cvirt_eff @ vh.T[:,:shell]
+            Ckern_0 = Cvirt_eff @ vh.T[:,shell:]
             print('Shell size: ', shell)
             Cspan_0, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
             Ckern_0, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)

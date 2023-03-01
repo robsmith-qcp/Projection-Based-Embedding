@@ -103,6 +103,7 @@ class Partition(Proj_Emb):
         self.n_aos = len(frag)
         return frag
 
+    # This function was developed using the work of Daniel Claudino's PsiEmbed
     def spade(self, S, C, n_aos):
         '''
         Parameters
@@ -169,6 +170,34 @@ class Partition(Proj_Emb):
         Cenv = Xinv @ Corth @ V[nkeep::,:].conj().T
 
         return Cact, Cenv
+
+    # To Do: implement projected bases
+    def initial_shell(self, S_emb, C_eff, n_aos, S_proj=None):
+        '''
+        Parameters
+        ----------
+        S : np.array
+            the overlap that defines how the concentric localization is built
+        C_eff : np.array
+            the orbitals of the virtual space, excluding the projected orbitals of subsystem B
+        n_aos : int
+            the number of AOs associated with the active space
+        S_proj: np.array
+            some projected basis # This has not been implemented yet
+        Returns
+        -------
+        Cspan_0 : np.array
+            the CL MOs connected to the active space (subsystem A) by the overlap
+        Ckern_0 : np.array
+            the CL MOs not connected to subsystem A by the overlap
+        '''
+        C_eff = np.linalg.inv(S_emb[:Embed.n_aos,:Embed.n_aos]) @ S_emb[:Embed.n_aos,:] @ Cvirt_eff
+        u, s, vh = np.linalg.svd((C_eff.conj().T @ S_emb[Embed.n_aos,:] @ C_eff), full_matrices=True)
+        s_eff = s[:Embed.n_aos]
+        self.shell = (s>=1.0e-15).sum
+        Cspan_0 = Cvirt_eff @ vh.T[:,:shell]
+        Ckern_0 = Cvirt_eff @ vh.T[:,shell:]
+        return Cspan_0, Ckern_0
 
     def build_shell(self, Operator, Cspan_initial, Ckern_initial, shell):
         '''

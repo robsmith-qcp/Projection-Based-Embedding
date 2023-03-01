@@ -46,7 +46,7 @@ Copyright (c) 2023, Robert L. Smith
 
 
 #### Acknowledgements
-Code framework is based on the following articles:
+Code framework is based on work done by Daniel Claudino and Nick Mayhall in the the following articles:
 Journal of Chemical Theory and Computation, 15, 2, 1053-1064, (2019): 
 [article](https://pubs.acs.org/doi/10.1021/acs.jctc.8b01112)
 Journal of Chemical Theory and Computation, 15, 11, 6085-6096, (2019): 
