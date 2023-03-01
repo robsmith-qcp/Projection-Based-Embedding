@@ -172,7 +172,7 @@ class Partition(Proj_Emb):
         return Cact, Cenv
 
     # To Do: implement projected bases
-    def initial_shell(self, S_emb, C_eff, n_aos, S_proj=None):
+    def initial_shell(self, S_emb, Cvirt_eff, n_aos, S_pbwb):
         '''
         Parameters
         ----------
@@ -191,10 +191,13 @@ class Partition(Proj_Emb):
         Ckern_0 : np.array
             the CL MOs not connected to subsystem A by the overlap
         '''
-        C_eff = np.linalg.inv(S_emb[:n_aos,:n_aos]) @ S_emb[:n_aos,:] @ Cvirt_eff
-        u, s, vh = np.linalg.svd((C_eff.conj().T @ S_emb[n_aos,:] @ C_eff), full_matrices=True)
+        C_eff = np.linalg.inv(S_emb[:n_aos,:n_aos]) @ S_pbwb[:n_aos,:] @ Cvirt_eff
+        A = C_eff.conj().T @ S_emb[:n_aos,:] @ Cvirt_eff
+        nkeep = A.shape[1]
+        Aorth = A[:nkeep,:]
+        u, s, vh = np.linalg.svd(Aorth, full_matrices=True)
         s_eff = s[:n_aos]
-        self.shell = (s_eff>=1.0e-15).sum
+        self.shell = (s_eff>=1.0e-15).sum()
         Cspan_0 = Cvirt_eff @ vh.T[:,:self.shell]
         Ckern_0 = Cvirt_eff @ vh.T[:,self.shell:]
         return Cspan_0, Ckern_0

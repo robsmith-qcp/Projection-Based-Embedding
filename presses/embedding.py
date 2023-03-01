@@ -102,8 +102,8 @@ class Proj_Emb:
         # Save the mean-field energy for testing
         self.E_init = self.mf.e_tot
         
-        atom_index = self.keywords['active_space_atoms'] - 1
-        self.n_aos = self.mol.aoslice_nr_by_atom()[atom_index][3]
+        self.atom_index = self.keywords['active_space_atoms'] - 1
+        self.n_aos = self.mol.aoslice_nr_by_atom()[self.atom_index][3]
 
         return F, self.V, C, S, self.P, self.H_core
 
@@ -207,6 +207,8 @@ class Proj_Emb:
         F_emb = self.emb_mf.get_fock()
         self.V_emb = self.emb_mf.get_veff()
         self.P_emb = self.emb_mf.make_rdm1()
+        self.S_pbwb = pyscf.gto.intor_cross('int1e_ovlp_sph', self.mol, self.mol)
+        self.emb_n_aos = self.mol.aoslice_nr_by_atom()[self.atom_index][3]
         return self.C_emb, S_emb, F_emb
 
     def embed_scf_energy(self, Vemb, D_A, Proj, mu, H):

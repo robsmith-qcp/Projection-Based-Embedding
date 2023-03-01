@@ -225,7 +225,7 @@ def run_embed(keywords):
         else:
             n_shells = Embed.keywords['n_shells']
             shell_e = []
-            Cspan_0, Ckern_0 = initial_shell(S_emb, Cvirt_eff, Embed.n_aos)
+            Cspan_0, Ckern_0 = Orbs.initial_shell(S_emb, Cvirt_eff, Embed.n_aos, Embed.S_pbwb)
             shell = Orbs.shell
             print('Shell size: ', shell)
             Cspan_0, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
