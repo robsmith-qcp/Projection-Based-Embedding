@@ -23,6 +23,7 @@ def update_keywords(keywords):
     default_keywords['xc'] = 'lda,vwn'
     default_keywords['split_spade'] = False
     default_keywords['n_shells'] = 0
+    default_keywords['n_roots'] = 2
 
     # Checking if the necessary keywords have been defined
     assert 'scf_method' in keywords, '\n Choose level of theory for the initial scf'
