@@ -191,12 +191,12 @@ class Partition(Proj_Emb):
         Ckern_0 : np.array
             the CL MOs not connected to subsystem A by the overlap
         '''
-        C_eff = np.linalg.inv(S_emb[:Embed.n_aos,:Embed.n_aos]) @ S_emb[:Embed.n_aos,:] @ Cvirt_eff
-        u, s, vh = np.linalg.svd((C_eff.conj().T @ S_emb[Embed.n_aos,:] @ C_eff), full_matrices=True)
-        s_eff = s[:Embed.n_aos]
-        self.shell = (s>=1.0e-15).sum
-        Cspan_0 = Cvirt_eff @ vh.T[:,:shell]
-        Ckern_0 = Cvirt_eff @ vh.T[:,shell:]
+        C_eff = np.linalg.inv(S_emb[:n_aos,:n_aos]) @ S_emb[:n_aos,:] @ Cvirt_eff
+        u, s, vh = np.linalg.svd((C_eff.conj().T @ S_emb[n_aos,:] @ C_eff), full_matrices=True)
+        s_eff = s[:n_aos]
+        self.shell = (s_eff>=1.0e-15).sum
+        Cspan_0 = Cvirt_eff @ vh.T[:,:self.shell]
+        Ckern_0 = Cvirt_eff @ vh.T[:,self.shell:]
         return Cspan_0, Ckern_0
 
     def build_shell(self, Operator, Cspan_initial, Ckern_initial, shell):

@@ -226,12 +226,7 @@ def run_embed(keywords):
             n_shells = Embed.keywords['n_shells']
             shell_e = []
             Cspan_0, Ckern_0 = initial_shell(S_emb, Cvirt_eff, Embed.n_aos)
-            C_eff = np.linalg.inv(S_emb[:Embed.n_aos,:Embed.n_aos]) @ S_emb[:Embed.n_aos,:] @ Cvirt_eff
-            u, s, vh = np.linalg.svd((C_eff.conj().T @ S_emb[Embed.n_aos,:] @ C_eff), full_matrices=True)
-            s_eff = s[:Embed.n_aos]
-            shell = (s>=1.0e-15).sum
-            Cspan_0 = Cvirt_eff @ vh.T[:,:shell]
-            Ckern_0 = Cvirt_eff @ vh.T[:,shell:]
+            shell = Orbs.shell
             print('Shell size: ', shell)
             Cspan_0, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
             Ckern_0, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)
