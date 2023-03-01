@@ -11,7 +11,7 @@ projection-based embedding for selected spin states with singular value informed
 1. Download
     
         git clone https://github.com/robsmith-qcp/PRESSES.git
-        cd presses/
+        cd PRESSES/
 
 2. create conda environment (optional)
          
