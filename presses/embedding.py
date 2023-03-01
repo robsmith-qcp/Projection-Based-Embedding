@@ -301,26 +301,26 @@ class Proj_Emb:
         elif self.keywords['subsystem_method'].lower() == 'eom-ccsd':
             mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
             e_ee, c_ee = mycc.eeccsd(self.keywords['n_roots'])
-            correl_e = mycc.e_ee
+            correl_e = e_ee
         elif self.keywords['subsystem_method'].lower() == 'sf-eom-ccsd':
             if self.keywords['spin'] == 0:
                 print('Requested correlation method is not suitable for a low-spin state.')
                 pass
             mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
             e_sf, c_sf = mycc.eomsf_ccsd(self.keywords['n_roots'])
-            correl_e = mycc.e_sf
+            correl_e = e_sf
             J = ((e_sf[0] - e_sf[1]) / (2 * self.keywords['spin'])) * 219474.63
             print('Exchange coupling constant: %f cm^-1' %J)
         elif self.keywords['subsystem_method'].lower() == 'ip-eom-ccsd':
             mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
             e_ip, c_ip = mycc.ipccsd(self.keywords['n_roots'])
-            correl_e = mycc.e_ip
+            correl_e = e_ip
             I = (e_ip[1] - e_ip[0]) * 2625.5002
             print('Ionization potential: %f kJ/mol' %I)
         elif self.keywords['subsystem_method'].lower() == 'ea-eom-ccsd':
             mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
             e_ea, c_ea = mycc.eaccsd(self.keywords['n_roots'])
-            correl_e = mycc.e_ea
+            correl_e = e_ea
             E = (e_ea[1] - e_ea[0]) * 2625.5002
             print('Electron affinity: %f kJ/mol' %E)
         else:
