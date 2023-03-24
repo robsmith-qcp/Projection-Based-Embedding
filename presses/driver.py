@@ -14,17 +14,19 @@ def update_keywords(keywords):
     default_keywords['spin'] = 0
     default_keywords['scf_method'] = 'hf'
     default_keywords['subsystem_method'] = 'hf'
-    default_keywords['conv_tol'] = 1.0e-7
-    default_keywords['conv_tol_grad'] = 1.0e-7
+    default_keywords['conv_tol'] = 1.0e-9
+    default_keywords['conv_tol_grad'] = 1.0e-6
     default_keywords['output'] = 'output.txt'
     default_keywords['level_shift'] = 1.0e6
-    default_keywords['verbose'] = 5
+    default_keywords['verbose'] = 4
     default_keywords['basis'] = 'STO-3G'
     default_keywords['xc'] = 'lda,vwn'
     default_keywords['split_spade'] = False
     default_keywords['n_shells'] = 0
     default_keywords['n_roots'] = 2
-
+    default_keywords['occupied_shells'] = 0
+    #default_keywords['operator'] = 'F'
+    
     # Checking if the necessary keywords have been defined
     assert 'scf_method' in keywords, '\n Choose level of theory for the initial scf'
     assert 'subsystem_method' in keywords, '\n Choose level of theory for the active region'
@@ -77,7 +79,9 @@ def run_embed(keywords):
 
     # Start with a mean-field calculation on the whole system
     F, V, C, S, P, H = Embed.mean_field()
-    
+    Vne = Embed.Vne
+    T = Embed.T        
+ 
     # indexing code is courtesy of N. Mayhall
     # From the mean-field MOs, group them by occupation number
     docc_list = []
@@ -116,6 +120,55 @@ def run_embed(keywords):
         Cact_s = Csocc
         Cact = np.hstack((Cact_d,Cact_s))
 
+    # The sizes of the pretinent spaces
+    nact = Cact.shape[1]
+    nenv = Cenv.shape[1]
+    nvirt = Cvirt.shape[1]
+
+    # Concentric Localization of the occupied space
+    O = F #Embed.keywords['operator']
+    n_occshells = Embed.keywords['occupied_shells']
+    if n_occshells != 0:
+        occshell = nact
+        tot_occshells = nenv//occshell + 1
+        Cspan_old = Cact
+        Ckern_old = Cenv
+        for i in range(n_occshells):
+            if i > tot_occshells:
+                break
+            Cspan_i, Ckern_i, A_i =  Orbs.build_shell(O, Cspan_old, Ckern_old, occshell)
+            Cspan_i =  np.hstack((Cspan_i,Cspan_old))
+            Cspan_old = Cspan_i
+            Ckern_old = Ckern_i
+            np.savez('occ_span{:03}.npz'.format(i), Cspan_i)
+            np.savez('occ_kern{:03}.npz'.format(i), Ckern_i)
+            np.savez('operator{:03}.npz'.format(i), A_i)
+            Cact = Cspan_i
+            Cenv = Ckern_i
+            print('Original active space', nact)
+            print('New active space', Cact.shape[1])
+
+    '''
+    # Concentric Localization of the virtual space
+    nshells = Embed.keywords['n_shells']
+    if nshells != 0:
+        Cspan_0, Ckern_0 = Orbs.initial_shell(S, Cvirt, Embed.n_aos)
+        shell = Orbs.shell
+        tot_shells = nvirt//shell + 1
+        Cspan_old = Cspan_0
+        Ckern_old = Ckern_0
+        if nshells > 1:
+            for i in range(n_shells - 1):
+                if i > tot_shells:
+                    break
+                Cspan_i, Ckern_i, A_i =  Orbs.build_shell(O, Cspan_old, Ckern_old, shell)
+                Cspan_i =  np.hstack((Cspan_old,Cspan_i))
+                Cspan_old = Cspan_i
+                Ckern_old = Ckern_i        
+                np.savez('span{:03}.npz'.format(i), Cspan_i)
+                np.savez('kern{:03}.npz'.format(i), Ckern_i)
+    '''
+
     # Validate the fidelity of the electron occupation number in the subspace, courtesy of N. Mayhall
     if not Embed.closed_shell:
         na_act = np.trace(Cact.conj().T @ S @ Pa @ S @ Cact)
@@ -140,7 +193,7 @@ def run_embed(keywords):
     nb_act = round(nb_act)
     n_elec = na_act + nb_act
     print('Number of electrons in the active space: ', n_elec)
-
+    pyscf.tools.molden.from_mo(Embed.mf.mol, "Cspade.molden", Cact);
     
     # Semicanonicalize the two subspaces and print the orbitals for viewing
     Cenv, e_orb_env = semi_canonicalize(Cenv, F)
@@ -199,7 +252,7 @@ def run_embed(keywords):
         
     # Run the mean-field calculation with an embedded potential
     C_emb, S_emb, F_emb = Embed.embedded_mean_field(int(n_elec), Vemb, D_A) 
-    
+    F = F_emb
     P_emb = Embed.emb_mf.make_rdm1()
 
     # Compute the new mean-field energy
@@ -211,6 +264,7 @@ def run_embed(keywords):
         print('Total mean-field energy = ', e_tot)
         e_c = 0
     else:
+        nshells = Embed.keywords['n_shells']
         n_act = round(na_act)
         n_effective = Embed.mol.nao - round(na_env)
         Cocc = C_emb[:,:n_act]
@@ -218,7 +272,7 @@ def run_embed(keywords):
         Cfroz = C_emb[:,n_effective:]
 
         # Perform concentric localization, if requested.
-        if Embed.keywords['n_shells'] == 0:
+        if nshells == 0:
             correl_e = Embed.correlation_energy(n_effective)
             e_tot = embed_mf_e + correl_e
             print('Total energy = ', e_tot)
@@ -228,28 +282,36 @@ def run_embed(keywords):
             shell_e = []
             Cspan_0, Ckern_0 = Orbs.initial_shell(S_emb, Cvirt_eff, Embed.n_aos, Embed.S_pbwb)
             shell = Orbs.shell
+            nvirt = Cvirt_eff.shape[1]
+            tot_shells = nvirt//shell + 1
+            np.savez('S.npz', S_emb)
+            np.savez('F.npz', F_emb)
+            np.savez('initial_span.npz', Cspan_0)
+            np.savez('initial_kern.npz', Ckern_0)
             print('Shell size: ', shell)
-            Cspan_0, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
-            Ckern_0, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)
-            correl_e = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_0, Ckern=Ckern_0, e_orb_span=e_orb_span, e_orb_kern=e_orb_kern)
+            print('Maximum number of shells: ',tot_shells)
+            Cspan, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
+            Ckern, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)
+            correl_e = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan, Ckern=Ckern, e_orb_span=e_orb_span, e_orb_kern=e_orb_kern)
             shell_e.append(correl_e)
             Cspan_old = Cspan_0
             Ckern_old = Ckern_0
             E_old = 0.0
             if n_shells > 1:
                 for i in range(n_shells - 1):
-                    Cspan_i, Ckern_i =  Orbs.build_shell(F_emb, Cspan_old, Ckern_old, shell)
-                    Cspan_i =  np.hstack((Cspan_old,Cspan_i))
-                    Cspan_i, e_orb_span_i = semi_canonicalize(Cspan_i, F_emb)
-                    Ckern_i, e_orb_kern_i = semi_canonicalize(Ckern_i, F_emb)
+                    Cspan, Ckern, A_i =  Orbs.build_shell(F_emb, Cspan_old, Ckern_old, shell)
+                    Cspan =  np.hstack((Cspan_old,Cspan))
+                    np.savez('shell{:03}.npz'.format(i), A_i)
+                    Cspan_i, e_orb_span_i = semi_canonicalize(Cspan, F_emb)
+                    Ckern_i, e_orb_kern_i = semi_canonicalize(Ckern, F_emb)
                     E_i = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_i, Ckern=Ckern_i, e_orb_span=e_orb_span_i, e_orb_kern=e_orb_kern_i)
                     shell_e.append(E_i)
-                    if E_i == E_old:
+                    if i == tot_shells:
                         break
                     print('Shell ', i+1, 'Energy = ', E_i)
                     E_old = E_i
-                    Cspan_old = Cspan_i
-                    Ckern_old = Ckern_i
+                    Cspan_old = Cspan
+                    Ckern_old = Ckern
 
             total_e = list(map(lambda i: i+embed_mf_e, shell_e))
             print('Total energy of each shell: ', shell_e)

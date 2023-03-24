@@ -40,67 +40,67 @@ class Partition(Proj_Emb):
         five_f = ['Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr']
         six_d = ['Ac', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn']
         seven_p = ['Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
-        for i in range(n_atoms):
-            for ao_idx,ao in enumerate(mf.mol.ao_labels(fmt=False)):
+        for ao_idx,ao in enumerate(mf.mol.ao_labels(fmt=False)):
+            for i in range(n_atoms):
                 if ao[0] == i:
                     if ao[1] in one_s:
                         if ao[2] in ('1s'):
                             frag.append(ao_idx)
                     elif ao[1] in two_s:
-                        if ao[2] in ('1s', '2s'):
+                        if ao[2] in ('2s'):
                             frag.append(ao_idx)
                     elif ao[1] in two_p:
-                        if ao[2] in ('1s', '2s', '2p'):
+                        if ao[2] in ('2s', '2p'):
                             frag.append(ao_idx)
                     elif ao[1] in three_s:
-                        if ao[2] in ('1s', '2s', '2p', '3s'):
+                        if ao[2] in ('3s'):
                             frag.append(ao_idx)
                     elif ao[1] in three_p:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p'):
+                        if ao[2] in ('3s', '3p'):
                             frag.append(ao_idx)
                     elif ao[1] in four_s:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s'):
+                        if ao[2] in ('4s'):
                             frag.append(ao_idx)
                     elif ao[1] in three_d:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d'):
+                        if ao[2] in ('4s', '3d'):
                             frag.append(ao_idx)
                     elif ao[1] in four_p:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p'):
+                        if ao[2] in ('4s', '3d', '4p'):
                             frag.append(ao_idx)
                     elif ao[1] in five_s:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s'):
+                        if ao[2] in ('5s'):
                             frag.append(ao_idx)
                     elif ao[1] in four_d:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d'):
+                        if ao[2] in ('5s', '4d'):
                             frag.append(ao_idx)
                     elif ao[1] in five_p:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p'):
+                        if ao[2] in ('5s', '4d', '5p'):
                             frag.append(ao_idx)
                     elif ao[1] in six_s:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s'):
+                        if ao[2] in ('6s'):
                             frag.append(ao_idx)
                     elif ao[1] in four_f:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f'):
+                        if ao[2] in ('6s', '4f'):
                             frag.append(ao_idx)
                     elif ao[1] in five_d:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f', '5d'):
+                        if ao[2] in ('6s', '4f', '5d'):
                             frag.append(ao_idx)
                     elif ao[1] in six_p:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f', '5d', '6p'):
+                        if ao[2] in ('6s', '4f', '5d', '6p'):
                             frag.append(ao_idx)
                     elif ao[1] in seven_s:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f', '5d', '6p', '7s'):
+                        if ao[2] in ('7s'):
                             frag.append(ao_idx)
                     elif ao[1] in five_f:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f', '5d', '6p', '7s', '5f'):
+                        if ao[2] in ('7s', '5f'):
                             frag.append(ao_idx)
                     elif ao[1] in six_d:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f', '5d', '6p', '7s', '5f', '6d'):
+                        if ao[2] in ('7s', '5f', '6d'):
                             frag.append(ao_idx)
                     elif ao[1] in seven_p:
-                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p', '6s', '4f', '5d', '6p', '7s', '5f', '6d', '7s'):
+                        if ao[2] in ('7s', '5f', '6d', '7p'):
                             frag.append(ao_idx)
-        self.n_aos = len(frag)
+        self.n_val_aos = len(frag)
         return frag
 
     # This function was developed using the work of Daniel Claudino's PsiEmbed
@@ -131,7 +131,7 @@ class Partition(Proj_Emb):
         Cenv = C @ vh.conj().T[:, n_act:]
         Cact = C @ vh.conj().T[:, :n_act]
         return Cact, Cenv
-
+ 
     def split_spade(self, S, C, active_orbs, thresh=1.0e-6):
         '''
         Parameters
@@ -153,10 +153,9 @@ class Partition(Proj_Emb):
         '''
         # *** To Do: Fix poor convergence when using split-SPADE ***
 
-        A = scipy.linalg.sqrtm(S)
-        Corth = A @ C
-    
-        u,s,vh = np.linalg.svd(Corth[orb_list,:])
+        X = scipy.linalg.sqrtm(S)
+        A = (X @ C)[orb_list,:]
+        u,s,vh = np.linalg.svd(A, full_matrices=True)
         nkeep = 0
         for idx,si in enumerate(s):
             if si > thresh:
@@ -164,15 +163,13 @@ class Partition(Proj_Emb):
             print(" Singular value: ", si)
         print(" # of orbitals to keep: ", nkeep)
     
-        Xinv = scipy.linalg.inv(X)
+        #Xinv = scipy.linalg.inv(X)
     
-        Cact = Xinv @ Corth @ V[0:nkeep,:].conj().T
-        Cenv = Xinv @ Corth @ V[nkeep::,:].conj().T
-
+        Cact = C @ vh[:nkeep,:].conj().T
+        Cenv = C @ vh[nkeep:,:].conj().T
         return Cact, Cenv
 
-    # To Do: implement projected bases
-    def initial_shell(self, S_emb, Cvirt_eff, n_aos, S_pbwb):
+    def initial_shell(self, S, C, n_aos, S_pbwb=None):
         '''
         Parameters
         ----------
@@ -191,15 +188,16 @@ class Partition(Proj_Emb):
         Ckern_0 : np.array
             the CL MOs not connected to subsystem A by the overlap
         '''
-        C_eff = np.linalg.inv(S_emb[:n_aos,:n_aos]) @ S_pbwb[:n_aos,:] @ Cvirt_eff
-        A = C_eff.conj().T @ S_emb[:n_aos,:] @ Cvirt_eff
-        nkeep = A.shape[1]
-        Aorth = A[:nkeep,:]
-        u, s, vh = np.linalg.svd(Aorth, full_matrices=True)
+        # To Do: implement projected bases
+        C_eff = np.linalg.inv(S[:n_aos,:n_aos]) @ S_pbwb[:n_aos,:] @ C
+        A = C_eff.conj().T @ S[:n_aos,:] @ C
+        #nkeep = A.shape[1]
+        #Aorth = A[:nkeep,:]
+        u, s, vh = np.linalg.svd(A, full_matrices=True)
         s_eff = s[:n_aos]
-        self.shell = (s_eff>=1.0e-15).sum()
-        Cspan_0 = Cvirt_eff @ vh.T[:,:self.shell]
-        Ckern_0 = Cvirt_eff @ vh.T[:,self.shell:]
+        self.shell = (s_eff>=1.0e-6).sum()
+        Cspan_0 = C @ vh.T[:,:self.shell]
+        Ckern_0 = C @ vh.T[:,self.shell:]
         return Cspan_0, Ckern_0
 
     def build_shell(self, Operator, Cspan_initial, Ckern_initial, shell):
@@ -220,11 +218,15 @@ class Partition(Proj_Emb):
             the CL MOs connected to the active space (subsystem A) by the operator
         Ckern : np.array
             the CL MOs not connected to subsystem A by the operator
+        M : np.array
+            the operator in the CL basis
         '''
         # Using an SVD to perform a shell partition in the concentric localization procedure
         A = Cspan_initial.conj().T @ Operator @ Ckern_initial
         u, s, vh = np.linalg.svd(A, full_matrices=True)
         Ckern = Ckern_initial @ vh.conj().T[:, shell:]
         Cspan = Ckern_initial @ vh.conj().T[:, :shell]
-        return Cspan, Ckern
+        C = np.hstack((Cspan_initial,Ckern_initial))
+        M = C.T @ Operator @ C
+        return Cspan, Ckern, M
 

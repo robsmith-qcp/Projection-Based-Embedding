@@ -17,8 +17,12 @@ presses.egg-info/not-zip-safe
 presses.egg-info/requires.txt
 presses.egg-info/top_level.txt
 presses/tests/__init__.py
-presses/tests/closed-shell_spade.py
-presses/tests/lda-in-lda.py
-presses/tests/rhf-in-rhf.py
-presses/tests/test_ao_frag.py
+presses/tests/test_ao-assign.py
+presses/tests/test_closed_shell_spade.py
+presses/tests/test_concentric_localization.py
+presses/tests/test_lda_self_embed.py
+presses/tests/test_occ_cl.py
+presses/tests/test_os_b3lyp_self_embed.py
 presses/tests/test_presses.py
+presses/tests/test_rhf_self_embed.py
+presses/tests/test_rohf_self_embed.py

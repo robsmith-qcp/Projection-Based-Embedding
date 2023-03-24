@@ -6,7 +6,7 @@ keywords = {}
 keywords['scf_method'] = 'dft' # If dft is chosen, the user should specify the desired exchange-correlation functional
 keywords['subsystem_method'] = 'mp2'
 keywords['xc'] = 'pbe'
-keywords['concen_local_shells'] = 2 # must be some integer
+keywords['n_shells'] = 10 # must be some integer
 keywords['atom'] = '''
                    C       -4.2066354000      0.3782434000     -0.1873330000                 
                    H       -4.6220764000     -0.2488589000      0.6064495000                 
@@ -30,7 +30,7 @@ keywords['atom'] = '''
                    H        2.1337217000     -0.2313363000      1.9594454000                 
                    '''
 keywords['active_space_atoms'] = 4 # The embedded subsystem is developed from the AOs centered on the first 4 atoms in the above string
-keywords['basis'] = '6-31G*'
+keywords['basis'] = 'aug-cc-pvdz'
 keywords['spin'] = 0 # in PySCF this is the number of unpaired electrons, not 2s+1
 keywords['charge'] = 0
 

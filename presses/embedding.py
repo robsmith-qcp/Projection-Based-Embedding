@@ -101,10 +101,19 @@ class Proj_Emb:
 
         # Save the mean-field energy for testing
         self.E_init = self.mf.e_tot
-        
-        self.atom_index = self.keywords['active_space_atoms'] - 1
-        self.n_aos = self.mol.aoslice_nr_by_atom()[self.atom_index][3]
 
+        # Defining the nuclear-electronic potential and kinetic energy operators
+        self.Vne = self.mol.intor_symmetric('int1e_nuc')
+        self.T = self.mol.intor_symmetric('int1e_kin')        
+
+        self.atom_index = self.keywords['active_space_atoms'] #- 1
+        ao_list = []
+        for ao_idx,ao in enumerate(self.mf.mol.ao_labels(fmt=False)):
+            for i in range(self.atom_index):
+                if ao[0] == i:
+                    ao_list.append(ao_idx)
+        self.n_aos = len(ao_list)
+        print(self.n_aos)
         return F, self.V, C, S, self.P, self.H_core
 
     def subspace_values(self, D_A, D_B):
@@ -191,12 +200,13 @@ class Proj_Emb:
 
         self.mol.build()
 
-        self.emb_mf.verbose = 5
+        self.emb_mf.verbose = self.keywords['verbose']
         self.emb_mf.conv_tol = self.keywords['conv_tol']
         self.emb_mf.conv_tol_grad = self.keywords['conv_tol_grad']
         self.emb_mf.chkfile = "subsys_scf.chk"
         self.emb_mf.get_hcore = lambda *args: self.H_core + Vemb
-        self.emb_mf.run(dm0=D_A,max_cycle=1000)
+        self.emb_mf.max_cycle = 200
+        self.emb_mf.kernel(dm0=D_A)
 
         if not self.emb_mf.converged:
             print('Subsystem calculation did not converge. Please, check your chosen tolerances.')
@@ -208,7 +218,7 @@ class Proj_Emb:
         self.V_emb = self.emb_mf.get_veff()
         self.P_emb = self.emb_mf.make_rdm1()
         self.S_pbwb = pyscf.gto.intor_cross('int1e_ovlp_sph', self.mol, self.mol)
-        self.emb_n_aos = self.mol.aoslice_nr_by_atom()[self.atom_index][3]
+        #self.emb_n_aos = self.mol.aoslice_nr_by_atom()[self.atom_index][3]
         return self.C_emb, S_emb, F_emb
 
     def embed_scf_energy(self, Vemb, D_A, Proj, mu, H):
@@ -249,26 +259,18 @@ class Proj_Emb:
         '''
         Parameters
         ----------
+        n_effective : int
+            the number of effective virtual MOs
         nact : int
             the number of active MOs
-        span_e : int
+        Cspan : np.array
+            the span MO coefficients
+        Ckern : np.array
+            the kernel MO coefficients
+        e_orb_span : int
             the orbital energies in the span
-        span_c : np.array
-            the span of the effective virtual space
-        kernel_e : int
+        e_orb_kern : int
             the orbital energies in the kernel
-        kernel_c : np.array
-            the kernel of the effective virtual space
-        Cocc : np.array
-            the occupied MO coefficients
-        n_active_aos : int
-            the number of AOs in the active space
-        shift : int
-            the number to account for the subspace B orbitals being in the frozen virtual space
-        C : np.array
-            the MO coefficients
-        correl_e : list
-            the list containing the correlation energy for each shell
         Returns
         -------
         correl_e : list
@@ -280,7 +282,7 @@ class Proj_Emb:
             frozen = [i for i in range(n_effective, self.mol.nao)]
         else:
             orbs = np.hstack((self.C_emb[:,:nact],Cspan,Ckern,self.C_emb[:,n_effective:]))
-            orbs_e = np.concatenate((mf_eff.mo_energy[:nact],e_orb_span, e_orb_kern,mf_eff.mo_energy[n_effective:]))
+            orbs_e = np.concatenate((mf_eff.mo_energy[:nact],e_orb_span,e_orb_kern,mf_eff.mo_energy[n_effective:]))
             frozen = [i for i in range(nact + Cspan.shape[1], self.mol.nao)]
             mf_eff.mo_energy = orbs_e
             mf_eff.mo_coeff = orbs
@@ -299,28 +301,28 @@ class Proj_Emb:
             print('Total mean-field energy = ', self.embed_SCF)
             pass
         elif self.keywords['subsystem_method'].lower() == 'eom-ccsd':
-            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen,verbose=4,max_cycle=500).run()
             e_ee, c_ee = mycc.eeccsd(self.keywords['n_roots'])
-            correl_e = e_ee
+            correl_e = e_ee[0]
         elif self.keywords['subsystem_method'].lower() == 'sf-eom-ccsd':
             if self.keywords['spin'] == 0:
                 print('Requested correlation method is not suitable for a low-spin state.')
                 pass
-            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen,verbose=4,max_cycle=500).run()
             e_sf, c_sf = mycc.eomsf_ccsd(self.keywords['n_roots'])
-            correl_e = e_sf
+            correl_e = e_sf[1] - e_sf[0]
             J = ((e_sf[0] - e_sf[1]) / (2 * self.keywords['spin'])) * 219474.63
             print('Exchange coupling constant: %f cm^-1' %J)
         elif self.keywords['subsystem_method'].lower() == 'ip-eom-ccsd':
-            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen,verbose=4,max_cycle=500).run()
             e_ip, c_ip = mycc.ipccsd(self.keywords['n_roots'])
-            correl_e = e_ip
+            correl_e = e_ip[0]
             I = (e_ip[1] - e_ip[0]) * 2625.5002
             print('Ionization potential: %f kJ/mol' %I)
         elif self.keywords['subsystem_method'].lower() == 'ea-eom-ccsd':
-            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
+            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen,verbose=4,max_cycle=500).run()
             e_ea, c_ea = mycc.eaccsd(self.keywords['n_roots'])
-            correl_e = e_ea
+            correl_e = e_ea[0]
             E = (e_ea[1] - e_ea[0]) * 2625.5002
             print('Electron affinity: %f kJ/mol' %E)
         else:
