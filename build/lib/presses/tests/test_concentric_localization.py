@@ -28,7 +28,7 @@ def test():
     ref, mf, ec = presses.run_embed(keywords)
     keywords['n_shells'] = 5
     e, mf, ec = presses.run_embed(keywords)
-    assert(abs(ref - e) < 1e-7)
+    assert(abs(ref - e[-1]) < 1e-7)
 
 if __name__== "__main__":
     test()

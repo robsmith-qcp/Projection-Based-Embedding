@@ -60,3 +60,4 @@ This package requires the following:
   - scipy
   - pyscf
   - h5py
+  - matplotlib

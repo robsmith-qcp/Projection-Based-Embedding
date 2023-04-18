@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: presses
-Version: 1.0.0+17.g0ba6d3b.dirty
+Version: 1.0.0+18.ga1306f2.dirty
 Summary: projection-based embedding for selected spin states with eigendecomposition of the subsystems
 Author-email: "Robert L. Smith" <robs84@vt.edu>
 License: BSD-3-Clause
@@ -73,3 +73,4 @@ This package requires the following:
   - scipy
   - pyscf
   - h5py
+  - matplotlib

@@ -25,8 +25,9 @@ def update_keywords(keywords):
     default_keywords['n_shells'] = 0
     default_keywords['n_roots'] = 2
     default_keywords['occupied_shells'] = 0
-    #default_keywords['operator'] = 'F'
-    
+    default_keywords['operator'] = 'F'
+    default_keywords['occ_operator'] = 'S'    
+
     # Checking if the necessary keywords have been defined
     assert 'scf_method' in keywords, '\n Choose level of theory for the initial scf'
     assert 'subsystem_method' in keywords, '\n Choose level of theory for the active region'
@@ -126,30 +127,39 @@ def run_embed(keywords):
     nvirt = Cvirt.shape[1]
 
     # Concentric Localization of the occupied space
-    O = F #Embed.keywords['operator']
     n_occshells = Embed.keywords['occupied_shells']
     if n_occshells != 0:
+        O_occ = Embed.operator_assignment(Embed.keywords['occ_operator'])
         occshell = nact
         tot_occshells = nenv//occshell + 1
         Cspan_old = Cact
         Ckern_old = Cenv
+        C_list = []
+        C_list.append(Cspan_old)
         for i in range(n_occshells):
             if i > tot_occshells:
                 break
-            Cspan_i, Ckern_i, A_i =  Orbs.build_shell(O, Cspan_old, Ckern_old, occshell)
+            Cspan_i, Ckern_i =  Orbs.build_shell(O_occ, Cspan_old, Ckern_old, occshell)
             Cspan_i =  np.hstack((Cspan_i,Cspan_old))
+            C_list.append(Cspan_i)
             Cspan_old = Cspan_i
             Ckern_old = Ckern_i
-            np.savez('occ_span{:03}.npz'.format(i), Cspan_i)
-            np.savez('occ_kern{:03}.npz'.format(i), Ckern_i)
-            np.savez('operator{:03}.npz'.format(i), A_i)
+            #np.savez('occ_span{:03}.npz'.format(i), Cspan_i)
+            #np.savez('occ_kern{:03}.npz'.format(i), Ckern_i)
             Cact = Cspan_i
             Cenv = Ckern_i
             print('Original active space', nact)
             print('New active space', Cact.shape[1])
+        Orbs.visualize_operator(O_occ, C_list, Cenv, 'Occ')
+        Cact = C_list
+        Cenv = Ckern_i
+        print('Original active space', nact)
+        print('New active space', Cact.shape[1])
+        nact = Cact.shape[1]
 
     '''
     # Concentric Localization of the virtual space
+    O_vir = Embed.operator_assignment(Embed.keywords['operator'])
     nshells = Embed.keywords['n_shells']
     if nshells != 0:
         Cspan_0, Ckern_0 = Orbs.initial_shell(S, Cvirt, Embed.n_aos)
@@ -157,16 +167,20 @@ def run_embed(keywords):
         tot_shells = nvirt//shell + 1
         Cspan_old = Cspan_0
         Ckern_old = Ckern_0
+        C_list = []
+        C_list.append(Cspan_old)
         if nshells > 1:
             for i in range(n_shells - 1):
                 if i > tot_shells:
                     break
-                Cspan_i, Ckern_i, A_i =  Orbs.build_shell(O, Cspan_old, Ckern_old, shell)
+                Cspan_i, Ckern_i, A_i =  Orbs.build_shell(O_vir, Cspan_old, Ckern_old, shell)
+                C_list.append(Cspan_i)
                 Cspan_i =  np.hstack((Cspan_old,Cspan_i))
                 Cspan_old = Cspan_i
                 Ckern_old = Ckern_i        
                 np.savez('span{:03}.npz'.format(i), Cspan_i)
                 np.savez('kern{:03}.npz'.format(i), Ckern_i)
+            Orbs.assemble_operator(O_vir, C_list, Ckern_old, 'Vir')
     '''
 
     # Validate the fidelity of the electron occupation number in the subspace, courtesy of N. Mayhall
@@ -284,10 +298,10 @@ def run_embed(keywords):
             shell = Orbs.shell
             nvirt = Cvirt_eff.shape[1]
             tot_shells = nvirt//shell + 1
-            np.savez('S.npz', S_emb)
-            np.savez('F.npz', F_emb)
-            np.savez('initial_span.npz', Cspan_0)
-            np.savez('initial_kern.npz', Ckern_0)
+            #np.savez('S.npz', S_emb)
+            #np.savez('F.npz', F_emb)
+            #np.savez('initial_span.npz', Cspan_0)
+            #np.savez('initial_kern.npz', Ckern_0)
             print('Shell size: ', shell)
             print('Maximum number of shells: ',tot_shells)
             Cspan, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
@@ -297,11 +311,13 @@ def run_embed(keywords):
             Cspan_old = Cspan_0
             Ckern_old = Ckern_0
             E_old = 0.0
+            O_vir = Embed.operator_assignment(Embed.keywords['operator'])
+            #print(O_vir.shape)
             if n_shells > 1:
                 for i in range(n_shells - 1):
-                    Cspan, Ckern, A_i =  Orbs.build_shell(F_emb, Cspan_old, Ckern_old, shell)
+                    Cspan, Ckern =  Orbs.build_shell(O_vir, Cspan_old, Ckern_old)
                     Cspan =  np.hstack((Cspan_old,Cspan))
-                    np.savez('shell{:03}.npz'.format(i), A_i)
+                    print(Cspan.shape)
                     Cspan_i, e_orb_span_i = semi_canonicalize(Cspan, F_emb)
                     Ckern_i, e_orb_kern_i = semi_canonicalize(Ckern, F_emb)
                     E_i = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_i, Ckern=Ckern_i, e_orb_span=e_orb_span_i, e_orb_kern=e_orb_kern_i)
@@ -312,9 +328,14 @@ def run_embed(keywords):
                     E_old = E_i
                     Cspan_old = Cspan
                     Ckern_old = Ckern
-
+                #C_list = Orbs.C_span_list
+                #C_list = np.array(Orbs.C_span_list)
+                #print(C_list[0].shape)
+                #print(Ckern.shape)
+                Orbs.visualize_operator(O_vir, Ckern, 'Vir')
             total_e = list(map(lambda i: i+embed_mf_e, shell_e))
             print('Total energy of each shell: ', shell_e)
             e_tot = total_e[-1]
             e_c = shell_e
+
     return e_tot, Embed.E_init, e_c

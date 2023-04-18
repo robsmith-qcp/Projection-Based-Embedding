@@ -329,9 +329,34 @@ class Proj_Emb:
             print('Requested correlation method has not yet been implemented.')
             print('Total mean-field energy = ', self.embed_SCF)
             pass
-
         return correl_e
 
+    def operator_assignment(self, operator_str):
+        '''
+        Parameters
+        ----------
+        operator_str : str
+            a string indicating the one-particle operator being assigned to seed concentric localization
+        Returns
+        -------
+        operator : np.array
+            the matrix representation of the single-particle operator
+        '''
+        if operator_str == 'F':
+            operator = self.mf.get_fock()
+        elif operator_str == 'H':
+            operator = self.H_core
+        elif operator_str == 'S':
+            operator = self.mf.get_ovlp(self.mol)
+        elif operator_str == 'T':
+            operator = self.T
+        elif operator_str == 'V':
+            operator = self.Vne
+        else:
+            print('Chosen operator is invalid.')
+            pass
+        return operator
+        
 def canvas(with_attribution=True):
     """
     Placeholder function to show example docstring (NumPy format).

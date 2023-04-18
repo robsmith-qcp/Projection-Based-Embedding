@@ -2,6 +2,7 @@ import pyscf
 import numpy as np
 import scipy
 from .embedding import *
+#import matplotlib as plt
 
 class Partition(Proj_Emb):
     '''
@@ -12,6 +13,8 @@ class Partition(Proj_Emb):
         Child class of the Proj_Emb class
         '''
         Proj_Emb.__init__(self,keywords)
+        self.C_span_list = []
+        return None        
 
     def ao_assignment(self, mf, n_atoms):
         '''
@@ -124,12 +127,12 @@ class Partition(Proj_Emb):
         # Using an SVD to perform the SPADE rotation
         X = scipy.linalg.sqrtm(S)
         A = (X @ C)[:n_aos, :]
-        u, s, vh = np.linalg.svd(A, full_matrices=True)
+        u, s, v = np.linalg.svd(A, full_matrices=True)
         ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
         n_act = np.argpartition(ds, -1)[-1] + 1
         n_env = len(s) - n_act
-        Cenv = C @ vh.conj().T[:, n_act:]
-        Cact = C @ vh.conj().T[:, :n_act]
+        Cenv = C @ v[n_act::, :].conj().T
+        Cact = C @ v[0:n_act, :].conj().T
         return Cact, Cenv
  
     def split_spade(self, S, C, active_orbs, thresh=1.0e-6):
@@ -151,11 +154,10 @@ class Partition(Proj_Emb):
         Cenv : np.array
             the SPADE MOs in the environment space (subsystem B)
         '''
-        # *** To Do: Fix poor convergence when using split-SPADE ***
 
         X = scipy.linalg.sqrtm(S)
-        A = (X @ C)[orb_list,:]
-        u,s,vh = np.linalg.svd(A, full_matrices=True)
+        A = X @ C
+        u,s,v = np.linalg.svd(A[orb_list,:], full_matrices=True)
         nkeep = 0
         for idx,si in enumerate(s):
             if si > thresh:
@@ -163,10 +165,8 @@ class Partition(Proj_Emb):
             print(" Singular value: ", si)
         print(" # of orbitals to keep: ", nkeep)
     
-        #Xinv = scipy.linalg.inv(X)
-    
-        Cact = C @ vh[:nkeep,:].conj().T
-        Cenv = C @ vh[nkeep:,:].conj().T
+        Cact = C @ v[0:nkeep, :].conj().T
+        Cenv = C @ v[nkeep::, :].conj().T
         return Cact, Cenv
 
     def initial_shell(self, S, C, n_aos, S_pbwb=None):
@@ -191,16 +191,15 @@ class Partition(Proj_Emb):
         # To Do: implement projected bases
         C_eff = np.linalg.inv(S[:n_aos,:n_aos]) @ S_pbwb[:n_aos,:] @ C
         A = C_eff.conj().T @ S[:n_aos,:] @ C
-        #nkeep = A.shape[1]
-        #Aorth = A[:nkeep,:]
-        u, s, vh = np.linalg.svd(A, full_matrices=True)
+        u, s, v = np.linalg.svd(A, full_matrices=True)
         s_eff = s[:n_aos]
         self.shell = (s_eff>=1.0e-6).sum()
-        Cspan_0 = C @ vh.T[:,:self.shell]
-        Ckern_0 = C @ vh.T[:,self.shell:]
+        Cspan_0 = C @ v[0:self.shell, :].T
+        Ckern_0 = C @ v[self.shell::, :].T
+        self.C_span_list.append(Cspan_0)
         return Cspan_0, Ckern_0
 
-    def build_shell(self, Operator, Cspan_initial, Ckern_initial, shell):
+    def build_shell(self, Operator, Cspan_initial, Ckern_initial):
         '''
         Parameters
         ----------
@@ -222,11 +221,23 @@ class Partition(Proj_Emb):
             the operator in the CL basis
         '''
         # Using an SVD to perform a shell partition in the concentric localization procedure
-        A = Cspan_initial.conj().T @ Operator @ Ckern_initial
-        u, s, vh = np.linalg.svd(A, full_matrices=True)
-        Ckern = Ckern_initial @ vh.conj().T[:, shell:]
-        Cspan = Ckern_initial @ vh.conj().T[:, :shell]
-        C = np.hstack((Cspan_initial,Ckern_initial))
-        M = C.T @ Operator @ C
-        return Cspan, Ckern, M
 
+        A = Cspan_initial.conj().T @ Operator @ Ckern_initial
+        u, s, v = np.linalg.svd(A, full_matrices=True)
+        shell = (s >= 1.0e-6).sum()
+        Cspan = Ckern_initial @ v[0:shell, :].T
+        Ckern = Ckern_initial @ v[shell::, :].T
+        self.C_span_list.append(Cspan)
+        return Cspan, Ckern
+
+    def visualize_operator(self, M, Ckern, label):
+        Cspan = np.concatenate(self.C_span_list, axis=1)
+        C = np.hstack((Cspan,Ckern))
+        M_cl = C.T @ M @ C
+        np.savez('Operator_cl.npz', M_cl)
+        #M_cl_plt = np.tanh(10 * np.absolute(M_cl))
+        #plt.matshow(M_cl_plt,cmap='gray_r')
+        #plt.xlabel("Orbitals") 
+        #plt.ylabel("Orbitals")
+        #plt.savefig('CL_operator_{:03}.pdf'.format(label))
+        return None
