@@ -1,6 +1,7 @@
 import pyscf
 import numpy as np
 from pyscf import mp, cc
+from pyscf.mp.dfmp2_native import DFMP2
 
 class Proj_Emb:
     '''
@@ -43,7 +44,7 @@ class Proj_Emb:
                    symmetry=   False, # True
                    spin    =   self.keywords['spin'],
                    charge  =   self.keywords['charge'],
-                   cart    =   False, # This should be set to true to match Daniel's code with the 6-31G* basis
+                   cart    =   False, #False,  This should be set to true to match Daniel's code with the 6-31G* basis
                    basis   =   self.keywords['basis'])
 
         self.mol.build()
@@ -112,8 +113,13 @@ class Proj_Emb:
             for i in range(self.atom_index):
                 if ao[0] == i:
                     ao_list.append(ao_idx)
+        #self.n_aos = self.mol.aoslice_nr_by_atom()[self.keywords['active_space_atoms']-1][3]
+        print('AOs: ', ao_list)
         self.n_aos = len(ao_list)
         print(self.n_aos)
+        self.S_proj = pyscf.gto.intor_cross('int1e_ovlp_sph',self.mol, self.mol)
+        self.mfe = self.mf.e_tot
+        self.nbas = self.mol.nao
         return F, self.V, C, S, self.P, self.H_core
 
     def subspace_values(self, D_A, D_B):
@@ -183,9 +189,10 @@ class Proj_Emb:
                    symmetry=   False, # True
                    spin    =   self.keywords['spin'],
                    charge  =   self.keywords['charge'],
-                   #cart    =   False, # This should be set to true to match Daniel's code with the 6-31G* basis
+                   cart    =   False, # This should be set to true to match Daniel's code with the 6-31G* basis
                    basis   =   self.keywords['basis'])
-
+        
+        self.xc = self.keywords['embedded_xc']
         if self.closed_shell and self.keywords['subsystem_method'].lower() != 'dft':
             self.emb_mf = pyscf.scf.RHF(self.mol)
         elif not self.closed_shell and self.keywords['subsystem_method'].lower() != 'dft':
@@ -277,7 +284,7 @@ class Proj_Emb:
             the updated list containing the correlation energy for each shell
         '''
         mf_eff = self.emb_mf
-
+        diff = self.mol.nao - n_effective
         if self.keywords['n_shells'] == 0:
             frozen = [i for i in range(n_effective, self.mol.nao)]
         else:
@@ -288,7 +295,13 @@ class Proj_Emb:
             mf_eff.mo_coeff = orbs
 
         if self.keywords['subsystem_method'].lower() == 'mp2':
-            mymp = pyscf.mp.MP2(mf_eff).set(frozen=frozen).run()
+            if diff > 0:
+                mymp = pyscf.mp.MP2(mf_eff).set(frozen=frozen).run()
+            else:
+                mymp = pyscf.mp.MP2(mf_eff).run()
+            correl_e = mymp.e_corr
+        elif self.keywords['subsystem_method'].lower() == 'ri-mp2':
+            mymp = DFMP2(mf_eff).set(frozen=frozen).run()
             correl_e = mymp.e_corr
         elif self.keywords['subsystem_method'].lower() == 'ccsd':
             mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen).run()
@@ -308,7 +321,10 @@ class Proj_Emb:
             if self.keywords['spin'] == 0:
                 print('Requested correlation method is not suitable for a low-spin state.')
                 pass
-            mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen,verbose=4,max_cycle=500).run()
+            if diff > 0:
+                mycc = pyscf.cc.CCSD(mf_eff).set(frozen=frozen,verbose=4,max_cycle=500).run()
+            else:
+                mycc = pyscf.cc.CCSD(mf_eff).set(verbose=4,max_cycle=500).run()
             e_sf, c_sf = mycc.eomsf_ccsd(self.keywords['n_roots'])
             correl_e = e_sf[1] - e_sf[0]
             J = ((e_sf[0] - e_sf[1]) / (2 * self.keywords['spin'])) * 219474.63
@@ -331,7 +347,7 @@ class Proj_Emb:
             pass
         return correl_e
 
-    def operator_assignment(self, operator_str):
+    def operator_assignment(self, operator_str, virt=True):
         '''
         Parameters
         ----------
@@ -342,16 +358,20 @@ class Proj_Emb:
         operator : np.array
             the matrix representation of the single-particle operator
         '''
-        if operator_str == 'F':
-            operator = self.mf.get_fock()
+        if operator_str == 'F' and virt==True:
+           operator = self.emb_mf.get_fock()
+        elif operator_str == 'F' and virt==False:
+           operator = self.mf.get_fock()
         elif operator_str == 'H':
             operator = self.H_core
         elif operator_str == 'S':
-            operator = self.mf.get_ovlp(self.mol)
+            operator = self.emb_mf.get_ovlp(self.mol)
         elif operator_str == 'T':
             operator = self.T
         elif operator_str == 'V':
             operator = self.Vne
+        elif operator_str == 'P':
+            operator = self.P
         else:
             print('Chosen operator is invalid.')
             pass
