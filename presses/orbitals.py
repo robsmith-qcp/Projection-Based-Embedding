@@ -50,34 +50,34 @@ class Partition(Proj_Emb):
                         if ao[2] in ('1s'):
                             frag.append(ao_idx)
                     elif ao[1] in two_s:
-                        if ao[2] in ('2s'):
+                        if ao[2] in ('1s', '2s'):
                             frag.append(ao_idx)
                     elif ao[1] in two_p:
-                        if ao[2] in ('2s', '2p'):
+                        if ao[2] in ('1s', '2s', '2p'):
                             frag.append(ao_idx)
                     elif ao[1] in three_s:
-                        if ao[2] in ('3s'):
+                        if ao[2] in ('1s', '2s', '2p', '3s'):
                             frag.append(ao_idx)
                     elif ao[1] in three_p:
-                        if ao[2] in ('3s', '3p'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p'):
                             frag.append(ao_idx)
                     elif ao[1] in four_s:
-                        if ao[2] in ('4s'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s'):
                             frag.append(ao_idx)
                     elif ao[1] in three_d:
-                        if ao[2] in ('4s', '3d'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d'):
                             frag.append(ao_idx)
                     elif ao[1] in four_p:
-                        if ao[2] in ('4s', '3d', '4p'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p'):
                             frag.append(ao_idx)
                     elif ao[1] in five_s:
-                        if ao[2] in ('5s'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s'):
                             frag.append(ao_idx)
                     elif ao[1] in four_d:
-                        if ao[2] in ('5s', '4d'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d'):
                             frag.append(ao_idx)
                     elif ao[1] in five_p:
-                        if ao[2] in ('5s', '4d', '5p'):
+                        if ao[2] in ('1s', '2s', '2p', '3s', '3p', '4s', '3d', '4p', '5s', '4d', '5p'):
                             frag.append(ao_idx)
                     elif ao[1] in six_s:
                         if ao[2] in ('6s'):
@@ -107,7 +107,7 @@ class Partition(Proj_Emb):
         return frag
 
     # This function was developed using the work of Daniel Claudino's PsiEmbed
-    def spade(self, S, C, n_aos):
+    def spade(self, S, C, n_aos, S_proj, orthog=True):
         '''
         Parameters
         ----------
@@ -125,17 +125,31 @@ class Partition(Proj_Emb):
             the SPADE MOs in the environment space (subsystem B)
         '''
         # Using an SVD to perform the SPADE rotation
-        X = scipy.linalg.sqrtm(S)
-        A = (X @ C)[:n_aos, :]
+        if orthog:
+            X = scipy.linalg.sqrtm(S)
+            A = (X @ C)[:n_aos, :]
+        else:
+            Y = np.eye(C.shape[0])
+            M = Y[:,:n_aos] 
+            X = scipy.linalg.sqrtm(S)
+            P = M @ np.linalg.inv(M.T @ S @ M) @ M.T
+            A = X @ P @ S @ C
+            #A = X[:,:n_aos] @ np.linalg.inv(S[:n_aos,:n_aos]) @ S[:n_aos,:] @ C
+            # try with [:n_aos, :] applied to A and also with S^-1/2
         u, s, v = np.linalg.svd(A, full_matrices=True)
         ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
         n_act = np.argpartition(ds, -1)[-1] + 1
         n_env = len(s) - n_act
+        #print(len(S[0]))
+        #print(n_aos)
+        if len(S[0]) == n_aos:
+            n_act = len(s)
         Cenv = C @ v[n_act::, :].conj().T
         Cact = C @ v[0:n_act, :].conj().T
-        return Cact, Cenv
+        
+        return Cact, Cenv, s
  
-    def split_spade(self, S, C, active_orbs, thresh=1.0e-6):
+    def split_spade(self, S, C, active_orbs, S_proj, cutoff=False, orthog=True, thresh=1.0e-8):
         '''
         Parameters
         ----------
@@ -154,20 +168,42 @@ class Partition(Proj_Emb):
         Cenv : np.array
             the SPADE MOs in the environment space (subsystem B)
         '''
-
+        if orthog:
+            Y = scipy.linalg.sqrtm(S)
+        else:
+            Y = np.eye(C.shape[0]) 
+        A = Y[:,active_orbs]
+        '''
+        if orthog:
+            X = scipy.linalg.sqrtm(S)
+            A = (X @ C)[active_orbs, :]
+        else:
+            Y = S[active_orbs,:]
+            X = Y[:,active_orbs]
+            Xinv = scipy.linalg.inv(X)
+            M = Xinv @ S_proj[active_orbs,:] @ C
+            A = M.T @ S_proj[active_orbs,:] @ C
+        '''
         X = scipy.linalg.sqrtm(S)
-        A = X @ C
-        u,s,v = np.linalg.svd(A[orb_list,:], full_matrices=True)
+        P = A @ np.linalg.inv(A.T @ S @ A) @ A.T
+        M = X @ P @ S @ C
+        u,s,v = np.linalg.svd(M, full_matrices=True) 
         nkeep = 0
         for idx,si in enumerate(s):
             if si > thresh:
                 nkeep += 1
-            print(" Singular value: ", si)
+            #print(" Singular value: ", si)
+        if cutoff:
+            ds = [(s[i] - s[i+1]) for i in range(len(s) - 1)]
+            nkeep = np.argpartition(ds, -1)[-1] + 1
         print(" # of orbitals to keep: ", nkeep)
-    
+        print(len(S[0]))
+        print(len(active_orbs))
+        if len(S[0]) == len(active_orbs):
+            nkeep = len(s)
         Cact = C @ v[0:nkeep, :].conj().T
         Cenv = C @ v[nkeep::, :].conj().T
-        return Cact, Cenv
+        return Cact, Cenv, s
 
     def initial_shell(self, S, C, n_aos, S_pbwb=None):
         '''
@@ -189,11 +225,13 @@ class Partition(Proj_Emb):
             the CL MOs not connected to subsystem A by the overlap
         '''
         # To Do: implement projected bases
-        C_eff = np.linalg.inv(S[:n_aos,:n_aos]) @ S_pbwb[:n_aos,:] @ C
-        A = C_eff.conj().T @ S[:n_aos,:] @ C
-        u, s, v = np.linalg.svd(A, full_matrices=True)
+        print(n_aos)
+        #C_eff = np.linalg.inv(S[:n_aos,:n_aos]) @ S_pbwb[:n_aos,:] @ C
+        X = scipy.linalg.sqrtm(S)
+        A =  X @ C #C_eff.conj().T @ S[:n_aos,:] @ C
+        u, s, v = np.linalg.svd(A[:n_aos, :], full_matrices=True)
         s_eff = s[:n_aos]
-        self.shell = (s_eff>=1.0e-6).sum()
+        self.shell = (s_eff>=1.0e-4).sum()
         Cspan_0 = C @ v[0:self.shell, :].T
         Ckern_0 = C @ v[self.shell::, :].T
         self.C_span_list.append(Cspan_0)
@@ -221,7 +259,6 @@ class Partition(Proj_Emb):
             the operator in the CL basis
         '''
         # Using an SVD to perform a shell partition in the concentric localization procedure
-
         A = Cspan_initial.conj().T @ Operator @ Ckern_initial
         u, s, v = np.linalg.svd(A, full_matrices=True)
         shell = (s >= 1.0e-6).sum()
