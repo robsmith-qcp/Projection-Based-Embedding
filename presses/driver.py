@@ -2,6 +2,8 @@ import pyscf
 import pyscf.tools
 import numpy as np
 import scipy
+import pandas as pd
+import time
 from functools import reduce
 from .embedding import *
 from .orbitals import *
@@ -26,7 +28,11 @@ def update_keywords(keywords):
     default_keywords['n_roots'] = 2
     default_keywords['occupied_shells'] = 0
     default_keywords['operator'] = 'F'
-    default_keywords['occ_operator'] = 'S'    
+    default_keywords['occ_operator'] = 'P'    
+    default_keywords['embedded_xc'] = 'lda,vwn'
+    default_keywords['split_cutoff'] = True
+    default_keywords['orthog'] = True
+    default_keywords['spectrum'] = False
 
     # Checking if the necessary keywords have been defined
     assert 'scf_method' in keywords, '\n Choose level of theory for the initial scf'
@@ -60,6 +66,91 @@ def subsystem_orthogonality(Proj,D_A):
         print('\n Check the subsystems.')
         print(a)
         exit()
+
+def svd_subspace_partitioning(orbitals_blocks, S, frag, orthog=True):
+    """
+    Find orbitals that most strongly overlap with the projector, P,  by doing rotations within each orbital block. 
+    [C1, C2, C3] -> [(C1f, C2f, C3f), (C1e, C2e, C3e)]
+    where C1f (C2f) and C1e (C2e) are the fragment orbitals in block 1 (2) and remainder orbitals in block 1 (2).
+
+    Common scenarios would be 
+        `orbital_blocks` = [Occ, Virt]
+        or 
+        `orbital_blocks` = [Occ, Sing, Virt]
+    
+    P[AO, frag]
+    O[AO, occupied]
+    U[AO, virtual]
+    """
+    if orthog:
+        X = scipy.linalg.sqrtm(S)
+    else:
+        X = np.eye(orbital_blocks.shape[0]) 
+    Pv = X[:,frag]
+    nfrag = Pv.shape[1]
+    nbas = S.shape[0]
+    assert(Pv.shape[0] == nbas)
+    nmo = 0
+    for i in orbitals_blocks:
+        assert(i.shape[0] == nbas)
+        nmo += i.shape[1]
+
+
+    X = scipy.linalg.sqrtm(S)
+
+    print(" Partition %4i orbitals into a total of %4i orbitals" %(nmo, Pv.shape[1]))
+    P = Pv @ np.linalg.inv(Pv.T @ S @ Pv) @ Pv.T
+
+
+    s = []
+    Clist = []
+    spaces = []
+    Cf = []
+    Ce = []
+    for obi, ob in enumerate(orbitals_blocks):
+        print("starting block", obi)
+        _,sob,Vob = np.linalg.svd(X @ P @ S @ ob, full_matrices=True)
+        s.extend(sob)
+        st = [str(obi),'orth','csv']
+        i = '.'.join(st)
+        pd.DataFrame(sob).to_csv(i)
+        Clist.append(ob @ Vob.T)
+        spaces.extend([obi for i in range(ob.shape[1])])
+        Cf.append(np.zeros((nbas, 0)))
+        Ce.append(np.zeros((nbas, 0)))
+
+    spaces = np.array(spaces)
+    s = np.array(s)
+
+    # Sort all the singular values
+    perm = np.argsort(s)[::-1]
+    print(perm)
+    s = s[perm]
+    spaces = spaces[perm]
+
+    Ctot = np.hstack(Clist)
+    Ctot = Ctot[:,perm]    
+
+    print(" %16s %12s %-12s" %("Index", "Sing. Val.", "Space"))
+    for i in range(nfrag):
+        print(" %16i %12.8f %12s*" %(i, s[i], spaces[i]))
+        block = spaces[i]
+        Cf[block] = np.hstack((Cf[block], Ctot[:,i:i+1]))
+
+    for i in range(nfrag, nmo):
+        if s[i] > 1e-6:
+            print(" %16i %12.8f %12s" %(i, s[i], spaces[i]))
+        block = spaces[i]
+        Ce[block] = np.hstack((Ce[block], Ctot[:,i:i+1]))
+
+    print("  SVD active space has the following dimensions:")
+    print(" %14s %14s %14s" %("Orbital Block", "Environment", "Active"))
+    for obi,ob in enumerate(orbitals_blocks):
+        print(" %14i %14i %14i" %(obi, Ce[obi].shape[1], Cf[obi].shape[1]))
+        assert(abs(np.linalg.det(ob.T @ S @ ob)) > 1e-12)
+
+    return Cf, Ce 
+
 
 def run_embed(keywords):
     '''
@@ -106,6 +197,8 @@ def run_embed(keywords):
         Pa = P[0,:,:]
         Pb = P[1,:,:]
 
+    if Embed.n_atoms==0:
+        exit()
     # Acquire the AOs in the active space
     if Embed.keywords['split_spade']:
         frag_list = Orbs.ao_assignment(Embed.mf, Embed.n_atoms)
@@ -113,14 +206,19 @@ def run_embed(keywords):
 
     # Use SPADE to rotate the MOs into the active space
     if Embed.keywords['split_spade']:
-        Cact, Cenv = Orbs.split_spade(S, Cdocc, frag_list)
+        Cact, Cenv, s = Orbs.split_spade(S, Cdocc, frag_list, Embed.S_proj, cutoff=Embed.keywords['split_cutoff'], orthog=Embed.keywords['orthog'])
+        #svd_subspace_partitioning((Cdocc, Csocc, Cvirt), S, frag, orthog=Embed.keywords['orthog'])
+        if (Embed.nbas - len(frag_list)) == 0:
+            Cact = Cdocc
     else:
-        Cact, Cenv = Orbs.spade(S, Cdocc, Embed.n_aos)
-    if not Embed.closed_shell:
-        Cact_d = Cact
-        Cact_s = Csocc
-        Cact = np.hstack((Cact_d,Cact_s))
-
+        Cact, Cenv, s = Orbs.spade(S, Cdocc, Embed.n_aos, Embed.S_proj, orthog=Embed.keywords['orthog'])
+        if (Embed.nbas - Embed.n_aos) == 0:
+            Cact = Cdocc
+    user_input = Embed.keywords['output_name']
+    spectrum_name = [user_input, ".csv"]
+    spectrum = ''.join(spectrum_name)
+    if Embed.keywords['spectrum']:
+        pd.DataFrame(s).to_csv(spectrum)
     # The sizes of the pretinent spaces
     nact = Cact.shape[1]
     nenv = Cenv.shape[1]
@@ -129,34 +227,39 @@ def run_embed(keywords):
     # Concentric Localization of the occupied space
     n_occshells = Embed.keywords['occupied_shells']
     if n_occshells != 0:
-        O_occ = Embed.operator_assignment(Embed.keywords['occ_operator'])
+        O_occ = Embed.operator_assignment(Embed.keywords['occ_operator'], virt=False)
         occshell = nact
         tot_occshells = nenv//occshell + 1
         Cspan_old = Cact
         Ckern_old = Cenv
-        C_list = []
-        C_list.append(Cspan_old)
         for i in range(n_occshells):
             if i > tot_occshells:
                 break
-            Cspan_i, Ckern_i =  Orbs.build_shell(O_occ, Cspan_old, Ckern_old, occshell)
-            Cspan_i =  np.hstack((Cspan_i,Cspan_old))
-            C_list.append(Cspan_i)
+            Cspan_i, Ckern_i =  Orbs.build_shell(O_occ, Cspan_old, Ckern_old)
+            Cspan_i =  np.hstack((Cspan_old,Cspan_i))
             Cspan_old = Cspan_i
             Ckern_old = Ckern_i
-            #np.savez('occ_span{:03}.npz'.format(i), Cspan_i)
-            #np.savez('occ_kern{:03}.npz'.format(i), Ckern_i)
+            #np.savez('occ_span{:04}.npz'.format(i), Cspan_i)
+            #np.savez('occ_kern{:04}.npz'.format(i), Ckern_i)
             Cact = Cspan_i
             Cenv = Ckern_i
             print('Original active space', nact)
             print('New active space', Cact.shape[1])
-        Orbs.visualize_operator(O_occ, C_list, Cenv, 'Occ')
-        Cact = C_list
+        Orbs.visualize_operator(O_occ, Cenv, 'Occ') 
         Cenv = Ckern_i
         print('Original active space', nact)
         print('New active space', Cact.shape[1])
         nact = Cact.shape[1]
 
+    if not Embed.closed_shell:
+        print("Open-Shelled System")
+        Cact_d = Cact
+        Cact_s = Csocc
+        Cact = np.hstack((Cact_d,Cact_s))
+        nact = Cact.shape[1]
+    print('Number of Active MOs: ', nact)
+    print('Number of Environment MOs: ', nenv)
+    print('Number of Virtual MOs: ', nvirt)
     '''
     # Concentric Localization of the virtual space
     O_vir = Embed.operator_assignment(Embed.keywords['operator'])
@@ -207,15 +310,20 @@ def run_embed(keywords):
     nb_act = round(nb_act)
     n_elec = na_act + nb_act
     print('Number of electrons in the active space: ', n_elec)
-    pyscf.tools.molden.from_mo(Embed.mf.mol, "Cspade.molden", Cact);
+    #pyscf.tools.molden.from_mo(Embed.mf.mol, "Cspade.molden", Cact);
     
     # Semicanonicalize the two subspaces and print the orbitals for viewing
     Cenv, e_orb_env = semi_canonicalize(Cenv, F)
     Cact, e_orb_act = semi_canonicalize(Cact, F)
 
     # Generate Molden files to visualize subsystem orbitals    
-    pyscf.tools.molden.from_mo(Embed.mf.mol, "Cact.molden", Cact);
-    pyscf.tools.molden.from_mo(Embed.mf.mol, "Cenv.molden", Cenv);
+    user_input = Embed.keywords['output_name']
+    active = ["Cact_", user_input, ".molden"]
+    environment = ["Cenv_", user_input, ".molden"]
+    active_name = ''.join(active)
+    environment_name = ''.join(environment)
+    pyscf.tools.molden.from_mo(Embed.mf.mol, active_name, Cact);
+    pyscf.tools.molden.from_mo(Embed.mf.mol, environment_name, Cenv);
 
     # Build density matrices for each subspace
     if Embed.closed_shell:
@@ -224,6 +332,7 @@ def run_embed(keywords):
     else:
         Denv = Cenv @ Cenv.conj().T
         D_B = np.stack((Denv,Denv))
+
         Dact_a = (Cact_d @ Cact_d.conj().T) + (Cact_s @ Cact_s.conj().T)
         Dact_b = Cact_d @ Cact_d.conj().T
         D_A = np.stack((Dact_a,Dact_b))
@@ -271,6 +380,7 @@ def run_embed(keywords):
 
     # Compute the new mean-field energy
     embed_mf_e = Embed.embed_scf_energy(Vemb, D_A, P_B, mu, H)
+    print('Difference in energy: ', (Embed.mfe - embed_mf_e)*627.51)
 
     # If the user chooses a DFT-in-DFT approach, just print the mean-field embedding result. Otherwise, proceed with a post-HF method.
     if Embed.keywords['subsystem_method'].lower() == 'hf' or Embed.keywords['subsystem_method'].lower() == 'dft':
@@ -294,7 +404,7 @@ def run_embed(keywords):
         else:
             n_shells = Embed.keywords['n_shells']
             shell_e = []
-            Cspan_0, Ckern_0 = Orbs.initial_shell(S_emb, Cvirt_eff, Embed.n_aos, Embed.S_pbwb)
+            Cspan, Ckern = Orbs.initial_shell(S_emb, Cvirt_eff, Embed.n_aos, Embed.S_pbwb)
             shell = Orbs.shell
             nvirt = Cvirt_eff.shape[1]
             tot_shells = nvirt//shell + 1
@@ -304,19 +414,17 @@ def run_embed(keywords):
             #np.savez('initial_kern.npz', Ckern_0)
             print('Shell size: ', shell)
             print('Maximum number of shells: ',tot_shells)
-            Cspan, e_orb_span = semi_canonicalize(Cspan_0, F_emb)
-            Ckern, e_orb_kern = semi_canonicalize(Ckern_0, F_emb)
-            correl_e = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan, Ckern=Ckern, e_orb_span=e_orb_span, e_orb_kern=e_orb_kern)
+            Cspan_i, e_orb_span = semi_canonicalize(Cspan, F_emb)
+            Ckern_i, e_orb_kern = semi_canonicalize(Ckern, F_emb)
+            correl_e = Embed.correlation_energy(n_effective, n_act, Cspan=Cspan_i, Ckern=Ckern_i, e_orb_span=e_orb_span, e_orb_kern=e_orb_kern)
             shell_e.append(correl_e)
-            Cspan_old = Cspan_0
-            Ckern_old = Ckern_0
-            E_old = 0.0
+            #E_old = 0.0
             O_vir = Embed.operator_assignment(Embed.keywords['operator'])
-            #print(O_vir.shape)
             if n_shells > 1:
                 for i in range(n_shells - 1):
-                    Cspan, Ckern =  Orbs.build_shell(O_vir, Cspan_old, Ckern_old)
-                    Cspan =  np.hstack((Cspan_old,Cspan))
+                    start = time.time()
+                    Cnew, Ckern =  Orbs.build_shell(O_vir, Cspan, Ckern)
+                    Cspan =  np.hstack((Cspan,Cnew))
                     print(Cspan.shape)
                     Cspan_i, e_orb_span_i = semi_canonicalize(Cspan, F_emb)
                     Ckern_i, e_orb_kern_i = semi_canonicalize(Ckern, F_emb)
@@ -325,17 +433,19 @@ def run_embed(keywords):
                     if i == tot_shells:
                         break
                     print('Shell ', i+1, 'Energy = ', E_i)
-                    E_old = E_i
-                    Cspan_old = Cspan
-                    Ckern_old = Ckern
+                    #E_old = E_i
+                    finish = time.time() - start
+                    print("time: ", finish)
                 #C_list = Orbs.C_span_list
                 #C_list = np.array(Orbs.C_span_list)
                 #print(C_list[0].shape)
                 #print(Ckern.shape)
                 Orbs.visualize_operator(O_vir, Ckern, 'Vir')
             total_e = list(map(lambda i: i+embed_mf_e, shell_e))
+            print('Mean-field energy: ', embed_mf_e)
             print('Total energy of each shell: ', shell_e)
             e_tot = total_e[-1]
             e_c = shell_e
+            np.savetxt("results.csv", total_e)
 
     return e_tot, Embed.E_init, e_c
