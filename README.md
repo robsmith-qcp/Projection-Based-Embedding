@@ -10,12 +10,12 @@ projection-based embedding for selected spin states with singular value informed
 ### Installation
 1. Download
     
-        git clone https://github.com/robsmith-qcp/PRESSES.git
-        cd PRESSES/
+        git clone https://github.com/robsmith-qcp/Projection-Based-Embedding.git
+        cd Projection-Based-Embedding/
 
 2. create conda environment (optional)
          
-        conda create --name presses python==3.9.4
+        conda create --name projemb python==3.9.4
 
 3. Install
 
