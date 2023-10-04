@@ -36,6 +36,7 @@ keywords['active_space_atoms'] = 4 # The embedded subsystem is developed from th
 keywords['basis'] = '6-31G*'
 keywords['spin'] = 0 # in PySCF this is the number of unpaired electrons, not 2s+1
 keywords['charge'] = 0
+keywords['cartesian'] = False
 
 Embed = presses.Proj_Emb(keywords)
 F, V, C, S, P, H = Embed.mean_field()
