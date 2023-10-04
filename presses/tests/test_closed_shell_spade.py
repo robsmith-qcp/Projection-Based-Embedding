@@ -26,6 +26,7 @@ def test():
     keywords['basis'] = 'aug-cc-pvdz'
     keywords['spin'] = 0 # in PySCF this is the number of unpaired electrons, not 2s+1
     keywords['charge'] = 0
+    keywords['cartesian'] = True
 
     e, mf, ec = presses.run_embed(keywords)
     # A lower threshold is set here to match the base PBE results between Psi4 and PySCF
