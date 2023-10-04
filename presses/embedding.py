@@ -44,7 +44,7 @@ class Proj_Emb:
                    symmetry=   False, # True
                    spin    =   self.keywords['spin'],
                    charge  =   self.keywords['charge'],
-                   cart    =   self.keywords['cartesian'], #False,  This should be set to true to match Daniel's code with the 6-31G* basis
+                   cart    =   self.keywords['cartesian'], # This should be set to true to match Daniel's code with the 6-31G* basis
                    basis   =   self.keywords['basis'])
 
         self.mol.build()
