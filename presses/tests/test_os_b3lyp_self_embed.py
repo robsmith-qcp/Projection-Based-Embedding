@@ -8,6 +8,7 @@ def test():
     keywords['scf_method'] = 'dft' # If dft is chosen, the user should specify the desired exchange-correlation functional
     keywords['subsystem_method'] = 'dft'
     keywords['xc'] = 'b3lyp'
+    keywords['embedded_xc'] = 'b3lyp'
     keywords['n_shells'] = 0 # must be some integer
     keywords['atom'] = '''
                          C   -4.1471368    0.4390617   -0.1805483
