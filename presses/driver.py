@@ -18,7 +18,7 @@ def update_keywords(keywords):
     default_keywords['subsystem_method'] = 'hf'
     default_keywords['conv_tol'] = 1.0e-9
     default_keywords['conv_tol_grad'] = 1.0e-6
-    default_keywords['output'] = 'output.txt'
+    default_keywords['output_name'] = 'output'
     default_keywords['level_shift'] = 1.0e6
     default_keywords['verbose'] = 4
     default_keywords['basis'] = 'STO-3G'
