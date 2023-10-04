@@ -33,6 +33,7 @@ def update_keywords(keywords):
     default_keywords['split_cutoff'] = True
     default_keywords['orthog'] = True
     default_keywords['spectrum'] = False
+    default_keywords['cartesian'] = False
 
     # Checking if the necessary keywords have been defined
     assert 'scf_method' in keywords, '\n Choose level of theory for the initial scf'
